@@ -1,9 +1,9 @@
+import '../styles/globals.css';
 import { useState } from 'react';
 import Link from 'next/link';
-import 'tailwindcss/tailwind.css';
 
 export default function App({ Component, pageProps }) {
-  const [lang, setLang] = useState('VN'); // VN | CN
+  const [lang, setLang] = useState('VN');
 
   const t = {
     VN: {
@@ -26,7 +26,6 @@ export default function App({ Component, pageProps }) {
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-800">
-      {/* Header ngang */}
       <header className="bg-blue-900 text-white shadow-md">
         <div className="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
           <div className="flex items-center space-x-3">
@@ -41,13 +40,9 @@ export default function App({ Component, pageProps }) {
             </button>
           </div>
         </div>
-        {/* Navigation bar */}
         <nav className="bg-blue-800 border-t border-blue-700">
           <div className="max-w-7xl mx-auto px-4 flex space-x-6 text-sm font-medium py-2">
             <Link href="/" className="hover:text-blue-200">{t.dashboard}</Link>
-            <Link href="/po-management" className="hover:text-blue-200">{t.po}</Link>
-            <Link href="/production-ocr" className="hover:text-blue-200">{t.ocr}</Link>
-            <Link href="/inventory" className="hover:text-blue-200">{t.inventory}</Link>
             <Link href="/delivery-note" className="hover:text-blue-200">{t.delivery}</Link>
           </div>
         </nav>
