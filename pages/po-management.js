@@ -8,6 +8,7 @@ export default function POManagement() {
   const [showModal, setShowModal] = useState(false);
   
   const [customerSearch, setCustomerSearch] = useState('');
+  const [showDropdown, setShowDropdown] = useState(false);
 
   const [formData, setFormData] = useState({
     po_number: '',
@@ -60,12 +61,11 @@ export default function POManagement() {
     e.preventDefault();
     
     if (!formData.customer_code) {
-      alert('Vui lòng chọn mã khách hàng!');
+      alert('Vui lòng chọn mã khách hàng từ danh sách gợi ý!');
       return;
     }
 
     let fileUrl = '';
-    // Chỉ upload nếu người dùng có chọn file
     if (poFile) {
       const fileName = `${Date.now()}_${poFile.name}`;
       const { data: uploadData, error: uploadError } = await supabase.storage
@@ -89,7 +89,7 @@ export default function POManagement() {
       quantity: Number(formData.quantity),
       unit_price: Number(formData.unit_price),
       po_date: formData.po_date || null,
-      file_url: fileUrl || null // Lưu thêm link file nếu có cột này trong DB
+      file_url: fileUrl || null
     };
 
     const { error } = await supabase.from('po_list').insert([newRow]);
@@ -184,39 +184,65 @@ export default function POManagement() {
                 <input type="text" value={formData.po_number} onChange={e => setFormData({...formData, po_number: e.target.value})} required style={{ width: '100%', padding: '6px' }} />
               </div>
 
-              <div style={{ marginBottom: '10px' }}>
-                <label>Khách hàng (Tìm theo mã hoặc tên): </label>
+              {/* Phần tìm kiếm và chọn khách hàng dạng dropdown tùy biến mượt mà */}
+              <div style={{ marginBottom: '10px', position: 'relative' }}>
+                <label>Khách hàng (Gõ tên/mã để chọn): </label>
                 <input 
                   type="text" 
-                  placeholder="🔍 Gõ từ khóa để lọc danh sách bên dưới..." 
+                  placeholder="🔍 Gõ từ khóa tìm kiếm khách hàng..." 
                   value={customerSearch}
-                  onChange={e => setCustomerSearch(e.target.value)}
-                  style={{ width: '100%', padding: '6px', marginBottom: '6px', border: '1px solid #ccc', borderRadius: '4px' }}
+                  onChange={e => {
+                    setCustomerSearch(e.target.value);
+                    setShowDropdown(true);
+                  }}
+                  onFocus={() => setShowDropdown(true)}
+                  style={{ width: '100%', padding: '6px', border: '1px solid #ccc', borderRadius: '4px' }}
                 />
                 
-                <select 
-                  value={formData.customer_code} 
-                  onChange={e => setFormData({...formData, customer_code: e.target.value})} 
-                  required 
-                  size="5" 
-                  style={{ width: '100%', padding: '6px', background: '#fff', border: '1px solid #ccc', borderRadius: '4px' }}
-                >
-                  {filteredCustomers.length === 0 ? (
-                    <option value="" disabled>-- Không tìm thấy khách hàng --</option>
-                  ) : (
-                    filteredCustomers.map((c, idx) => {
-                      const code = c.customer_code || c.code || c.id;
-                      const name = c.customer_name || c.name;
-                      return (
-                        <option key={idx} value={code}>
-                          {code} - {name}
-                        </option>
-                      );
-                    })
-                  )}
-                </select>
+                {showDropdown && (
+                  <ul style={{ 
+                    position: 'absolute', 
+                    top: '100%', 
+                    left: 0, 
+                    right: 0, 
+                    maxHeight: '160px', 
+                    overflowY: 'auto', 
+                    background: '#fff', 
+                    border: '1px solid #ccc', 
+                    listStyle: 'none', 
+                    padding: 0, 
+                    margin: 0, 
+                    zIndex: 1000,
+                    boxShadow: '0 4px 6px rgba(0,0,0,0.1)'
+                  }}>
+                    {filteredCustomers.length === 0 ? (
+                      <li style={{ padding: '8px', color: '#888' }}>Không tìm thấy khách hàng phù hợp</li>
+                    ) : (
+                      filteredCustomers.map((c, idx) => {
+                        const code = c.customer_code || c.code || c.id;
+                        const name = c.customer_name || c.name;
+                        return (
+                          <li 
+                            key={idx} 
+                            onClick={() => {
+                              setFormData({...formData, customer_code: code});
+                              setCustomerSearch(`${code} - ${name}`);
+                              setShowDropdown(false);
+                            }}
+                            style={{ padding: '8px', cursor: 'pointer', borderBottom: '1px solid #eee' }}
+                            onMouseOver={(e) => e.target.style.background = '#f0f0f0'}
+                            onMouseOut={(e) => e.target.style.background = '#fff'}
+                          >
+                            <strong>{code}</strong> - {name}
+                          </li>
+                        );
+                      })
+                    )}
+                  </ul>
+                )}
+                
                 <div style={{ marginTop: '4px', fontSize: '13px', color: '#0070f3' }}>
-                  ✓ Đã chọn mã khách hàng: <strong>{formData.customer_code || 'Chưa chọn'}</strong>
+                  ✓ Đã chọn mã: <strong>{formData.customer_code || 'Chưa chọn'}</strong>
                 </div>
               </div>
 
