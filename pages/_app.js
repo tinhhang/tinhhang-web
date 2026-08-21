@@ -43,6 +43,9 @@ export default function App({ Component, pageProps }) {
         <nav className="bg-blue-800 border-t border-blue-700">
           <div className="max-w-7xl mx-auto px-4 flex space-x-6 text-sm font-medium py-2">
             <Link href="/" className="hover:text-blue-200">{t.dashboard}</Link>
+            <Link href="/po-management" className="hover:text-blue-200">{t.po}</Link>
+            <Link href="/production-ocr" className="hover:text-blue-200">{t.ocr}</Link>
+            <Link href="/inventory" className="hover:text-blue-200">{t.inventory}</Link>
             <Link href="/delivery-note" className="hover:text-blue-200">{t.delivery}</Link>
           </div>
         </nav>
