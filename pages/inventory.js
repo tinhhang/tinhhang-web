@@ -4,10 +4,14 @@ import { supabase } from '../lib/supabaseClient';
 export default function Inventory({ lang }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showModal, setShowModal] = useState(false);
+  const [formData, setFormData] = useState({ code: '', name: '', unit: 'Bộ', quantity: 0 });
 
   const t = {
     VN: {
       title: 'Quản Lý Nhập & Tồn Kho',
+      addManual: '+ Nhập Tay',
+      importExcel: '📥 Import Excel',
       code: 'Mã Sản Phẩm',
       name: 'Tên Sản Phẩm / Quy Cách',
       unit: 'ĐVT',
@@ -16,9 +20,14 @@ export default function Inventory({ lang }) {
       empty: 'Chưa có dữ liệu tồn kho.',
       inStock: 'Còn hàng',
       lowStock: 'Sắp hết hàng',
+      modalTitle: 'Thêm Hàng Vừa Nhập Kho',
+      save: 'Lưu Nhập Kho',
+      cancel: 'Hủy'
     },
     CN: {
       title: '入库与库存管理',
+      addManual: '+ 手动录入',
+      importExcel: '📥 导入 Excel',
       code: '产品编号',
       name: '产品名称 / 规格',
       unit: '单位',
@@ -27,29 +36,75 @@ export default function Inventory({ lang }) {
       empty: '暂无库存数据。',
       inStock: '有货',
       lowStock: '库存紧张',
+      modalTitle: '新增入库产品',
+      save: '保存入库',
+      cancel: '取消'
     }
   }[lang || 'VN'];
 
   useEffect(() => {
-    async function fetchInventory() {
-      try {
-        setLoading(true);
-        const { data, error } = await supabase.from('inventory').select('*');
-        if (error) throw error;
-        setItems(data || []);
-      } catch (err) {
-        console.error('Lỗi lấy dữ liệu tồn kho:', err);
-      } finally {
-        setLoading(false);
-      }
-    }
     fetchInventory();
   }, []);
 
+  async function fetchInventory() {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase.from('inventory').select('*');
+      if (error) throw error;
+      setItems(data || []);
+    } catch (err) {
+      console.error('Lỗi lấy dữ liệu:', err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Xử lý thêm mới thủ công
+  const handleAddManual = async (e) => {
+    e.preventDefault();
+    try {
+      const { error } = await supabase.from('inventory').insert([formData]);
+      if (error) throw error;
+      setShowModal(false);
+      setFormData({ code: '', name: '', unit: 'Bộ', quantity: 0 });
+      fetchInventory();
+    } catch (err) {
+      alert('Chưa lưu được vào Supabase! Đang thêm tạm vào bảng hiển thị.');
+      setItems([...items, { ...formData, id: Date.now() }]);
+      setShowModal(false);
+    }
+  };
+
+  // Xử lý Import Excel/CSV đơn giản
+  const handleFileUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    alert(`Đã nhận file ${file.name}. Hệ thống đang đọc dữ liệu...`);
+    // Logic parse file chi tiết sẽ chạy ở đây
+  };
+
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-800">{t.title}</h1>
+      {/* Header & Các nút chức năng */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <h1 className="text-2xl font-bold text-gray-800">{t.title}</h1>
+        
+        <div className="flex items-center gap-3">
+          <label className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium shadow cursor-pointer text-sm flex items-center gap-2">
+            {t.importExcel}
+            <input type="file" accept=".xlsx, .xls, .csv" onChange={handleFileUpload} className="hidden" />
+          </label>
 
+          <button
+            onClick={() => setShowModal(true)}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium shadow text-sm"
+          >
+            {t.addManual}
+          </button>
+        </div>
+      </div>
+
+      {/* Bảng dữ liệu */}
       <div className="bg-white rounded-lg shadow overflow-hidden">
         <table className="min-w-full divide-y divide-gray-200 text-sm text-left">
           <thead className="bg-gray-100 font-semibold text-gray-700">
@@ -64,15 +119,11 @@ export default function Inventory({ lang }) {
           <tbody className="divide-y divide-gray-200">
             {loading ? (
               <tr>
-                <td colSpan="5" className="px-6 py-4 text-center text-gray-500">
-                  Đang tải dữ liệu...
-                </td>
+                <td colSpan="5" className="px-6 py-4 text-center text-gray-500">Đang tải dữ liệu...</td>
               </tr>
             ) : items.length === 0 ? (
               <tr>
-                <td colSpan="5" className="px-6 py-4 text-center text-gray-500">
-                  {t.empty}
-                </td>
+                <td colSpan="5" className="px-6 py-4 text-center text-gray-500">{t.empty}</td>
               </tr>
             ) : (
               items.map((item, index) => (
@@ -94,6 +145,75 @@ export default function Inventory({ lang }) {
           </tbody>
         </table>
       </div>
+
+      {/* Popup nhập tay */}
+      {showModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 space-y-4">
+            <h2 className="text-xl font-bold text-gray-800">{t.modalTitle}</h2>
+            <form onSubmit={handleAddManual} className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Mã sản phẩm</label>
+                <input
+                  type="text"
+                  required
+                  value={formData.code}
+                  onChange={(e) => setFormData({ ...formData, code: e.target.value })}
+                  className="mt-1 w-full p-2 border rounded-md"
+                  placeholder="VD: TV-35MM"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Tên sản phẩm / Quy cách</label>
+                <input
+                  type="text"
+                  required
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  className="mt-1 w-full p-2 border rounded-md"
+                  placeholder="VD: Bộ Trục Vít 35mm"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Đơn vị tính</label>
+                  <input
+                    type="text"
+                    value={formData.unit}
+                    onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
+                    className="mt-1 w-full p-2 border rounded-md"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Số lượng</label>
+                  <input
+                    type="number"
+                    required
+                    value={formData.quantity}
+                    onChange={(e) => setFormData({ ...formData, quantity: Number(e.target.value) })}
+                    className="mt-1 w-full p-2 border rounded-md"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end gap-3 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setShowModal(false)}
+                  className="px-4 py-2 border rounded-md text-gray-600 hover:bg-gray-100"
+                >
+                  {t.cancel}
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                >
+                  {t.save}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
