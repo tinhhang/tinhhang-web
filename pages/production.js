@@ -6,8 +6,8 @@ export default function ProductionOrders({ lang }) {
   const [loading, setLoading] = useState(true);
 
   const t = {
-    VN: { title: 'Đơn Sản Xuất (AI OCR)', code: 'Mã Đơn SX', product: 'Sản Phẩm', qty: 'Số Lượng', docStatus: 'Trạng Thái Chứng Từ', empty: 'Chưa có đơn sản xuất nào.' },
-    CN: { title: '生产单 (AI OCR)', code: '生产单号', product: '产品', qty: '数量', docStatus: '单据状态', empty: '暂无生产单。' }
+    VN: { title: 'Đơn Sản Xuất ', code: 'Mã Đơn SX', product: 'Sản Phẩm', qty: 'Số Lượng', docStatus: 'Trạng Thái Chứng Từ', empty: 'Chưa có đơn sản xuất nào.' },
+    CN: { title: '生产单 ', code: '生产单号', product: '产品', qty: '数量', docStatus: '单据状态', empty: '暂无生产单。' }
   }[lang || 'VN'];
 
   useEffect(() => {
