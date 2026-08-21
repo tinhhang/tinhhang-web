@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
-import { supabase } from '../lib/supabaseClient'; // Bà chỉnh lại đường dẫn file supabaseClient nếu cần
+import { supabase } from '../lib/supabaseClient'; // BÀ KIỂM TRA ĐƯỜNG DẪN FILE SUPABASE CHO ĐÚNG NHÉ
 
 export default function Inventory() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [formData, setFormData] = useState({
-    importDate: new Date().toLocaleDateString('vi-VN'),
+    importDate: new Date().toISOString().split('T')[0],
     productCode: '',
     productName: '',
     quantity: 1,
@@ -18,13 +18,51 @@ export default function Inventory() {
     invoiceDate: ''
   });
 
-  // Hỗ trợ format định dạng ngày
-  const formatDate = (val) => {
-    if (!val) return '';
+  // 1. Chuẩn hóa ngày về định dạng ISO (YYYY-MM-DD) để lưu vào Supabase không bị lỗi out of range
+  const formatDateForDB = (val) => {
+    if (!val) return null;
+    
+    let d;
     if (val instanceof Date) {
-      return `${val.getDate()}/${val.getMonth() + 1}/${val.getFullYear()}`;
+      d = val;
+    } else {
+      const str = String(val).trim();
+      if (!str) return null;
+      
+      const parts = str.split(/[\/\-]/);
+      if (parts.length === 3) {
+        const p1 = parseInt(parts[0], 10);
+        const p2 = parseInt(parts[1], 10);
+        const p3 = parseInt(parts[2], 10);
+        
+        // Nếu định dạng d/m/yyyy hoặc dd/mm/yyyy
+        if (p3 > 1000) {
+          const day = String(p1).padStart(2, '0');
+          const month = String(p2).padStart(2, '0');
+          return `${p3}-${month}-${day}`;
+        }
+      }
+      d = new Date(str);
     }
-    return String(val);
+
+    if (isNaN(d.getTime())) return null;
+
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+
+    return `${year}-${month}-${day}`;
+  };
+
+  // 2. Format ngày hiển thị ra giao diện bảng (DD/MM/YYYY)
+  const formatDateForDisplay = (val) => {
+    if (!val) return '';
+    const d = new Date(val);
+    if (isNaN(d.getTime())) return String(val);
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    return `${day}/${month}/${year}`;
   };
 
   // Tải dữ liệu từ Supabase khi mở trang
@@ -38,10 +76,9 @@ export default function Inventory() {
     if (error) {
       console.error('Lỗi lấy dữ liệu:', error.message);
     } else if (data) {
-      // Map từ DB về state hiển thị UI
       const mappedData = data.map((item) => ({
         id: item.id,
-        importDate: item.import_date,
+        importDate: formatDateForDisplay(item.import_date),
         productCode: item.product_code,
         productName: item.product_name,
         quantity: item.quantity,
@@ -52,7 +89,7 @@ export default function Inventory() {
         invoice_status: item.invoice_status,
         invoiceStatus: item.invoice_status || 'Chưa xuất hóa đơn',
         invoice_date: item.invoice_date,
-        invoiceDate: item.invoice_date || ''
+        invoiceDate: formatDateForDisplay(item.invoice_date)
       }));
       setItems(mappedData);
     }
@@ -63,7 +100,7 @@ export default function Inventory() {
     fetchInventory();
   }, []);
 
-  // 1. Import Excel và LƯU TRỰC TIẾP VÀO SUPABASE
+  // 3. Import Excel và LƯU VÀO SUPABASE
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -110,10 +147,10 @@ export default function Inventory() {
           }
 
           let invoiceStatus = pStatus ? 'Đã xuất hóa đơn' : 'Chưa xuất hóa đơn';
-          let invoiceDate = pStatus ? formatDate(colJ) : '';
+          let invoiceDate = pStatus ? formatDateForDB(colJ) : null;
 
           parsedItems.push({
-            import_date: formatDate(colC),
+            import_date: formatDateForDB(colC),
             product_code: '',
             product_name: String(colD || '').trim(),
             quantity: isNaN(Number(colE)) ? 0 : Number(colE),
@@ -150,7 +187,7 @@ export default function Inventory() {
     reader.readAsBinaryString(file);
   };
 
-  // 2. Cập nhật Mã hàng trực tiếp lên Supabase
+  // 4. Cập nhật Mã hàng trực tiếp lên Supabase
   const handleProductCodeChange = async (index, value) => {
     const updatedItems = [...items];
     updatedItems[index].productCode = value;
@@ -162,49 +199,53 @@ export default function Inventory() {
     }
   };
 
-  // 3. Đổi trạng thái Hóa đơn & lưu DB
+  // 5. Đổi trạng thái Hóa đơn & lưu DB
   const toggleInvoiceStatus = async (index) => {
     const updatedItems = [...items];
     const item = updatedItems[index];
 
-    if (item.invoiceStatus === 'Chưa xuất hóa đơn' || item.invoice_status === 'Chưa xuất hóa đơn') {
-      item.invoiceStatus = 'Đã xuất hóa đơn';
-      item.invoice_status = 'Đã xuất hóa đơn';
-      const today = new Date();
-      item.invoiceDate = `${today.getDate()}/${today.getMonth() + 1}/${today.getFullYear()}`;
-      item.invoice_date = item.invoiceDate;
-    } else {
-      item.invoiceStatus = 'Chưa xuất hóa đơn';
-      item.invoice_status = 'Chưa xuất hóa đơn';
-      item.invoiceDate = '';
-      item.invoice_date = '';
+    let newInvoiceStatus = 'Chưa xuất hóa đơn';
+    let newInvoiceDateForDB = null;
+    let newInvoiceDateDisplay = '';
+
+    if (item.invoiceStatus === 'Chưa xuất hóa đơn') {
+      newInvoiceStatus = 'Đã xuất hóa đơn';
+      const todayStr = new Date().toISOString().split('T')[0];
+      newInvoiceDateForDB = todayStr;
+      newInvoiceDateDisplay = formatDateForDisplay(todayStr);
     }
 
+    item.invoiceStatus = newInvoiceStatus;
+    item.invoice_status = newInvoiceStatus;
+    item.invoiceDate = newInvoiceDateDisplay;
+    item.invoice_date = newInvoiceDateForDB;
+
     setItems(updatedItems);
+
     if (item.id) {
       await supabase
         .from('inventory_import')
         .update({
-          invoice_status: item.invoice_status || item.invoiceStatus,
-          invoice_date: item.invoice_date || item.invoiceDate
+          invoice_status: newInvoiceStatus,
+          invoice_date: newInvoiceDateForDB
         })
         .eq('id', item.id);
     }
   };
 
-  // 4. Đổi trạng thái Giao hàng & lưu DB
+  // 6. Đổi trạng thái Giao hàng & lưu DB
   const toggleDeliveryStatus = async (index) => {
     const updatedItems = [...items];
     const item = updatedItems[index];
 
-    const currentStatus =
-      item.delivery_status !== undefined ? item.delivery_status : item.deliveryStatus === 'Đã giao';
+    const currentStatus = item.delivery_status !== undefined ? item.delivery_status : item.deliveryStatus === 'Đã giao';
     const newStatus = !currentStatus;
 
     item.delivery_status = newStatus;
     item.deliveryStatus = newStatus ? 'Đã giao' : 'Chưa giao';
 
     setItems(updatedItems);
+
     if (item.id) {
       await supabase
         .from('inventory_import')
@@ -215,11 +256,11 @@ export default function Inventory() {
     }
   };
 
-  // 5. Nhập dữ liệu thủ công & lưu DB
+  // 7. Nhập dữ liệu thủ công & lưu DB
   const handleAddManual = async (e) => {
     e.preventDefault();
     const newItem = {
-      import_date: formData.importDate,
+      import_date: formatDateForDB(formData.importDate),
       product_code: formData.productCode,
       product_name: formData.productName,
       quantity: formData.quantity,
@@ -227,7 +268,7 @@ export default function Inventory() {
       export_unit: formData.exportUnit,
       delivery_status: false,
       invoice_status: formData.invoiceStatus,
-      invoice_date: formData.invoiceStatus === 'Đã xuất hóa đơn' ? formData.invoiceDate : ''
+      invoice_date: formData.invoiceStatus === 'Đã xuất hóa đơn' ? formatDateForDB(formData.invoiceDate) : null
     };
 
     const { error } = await supabase.from('inventory_import').insert([newItem]);
@@ -237,7 +278,7 @@ export default function Inventory() {
       await fetchInventory();
       setShowModal(false);
       setFormData({
-        importDate: new Date().toLocaleDateString('vi-VN'),
+        importDate: new Date().toISOString().split('T')[0],
         productCode: '',
         productName: '',
         quantity: 1,
@@ -314,6 +355,7 @@ export default function Inventory() {
           <div style={{ background: '#fff', padding: '20px', borderRadius: '8px', width: '400px' }}>
             <h2>Thêm mới hàng hóa</h2>
             <form onSubmit={handleAddManual}>
+              <div><label>Ngày nhập:</label><input type="date" value={formData.importDate} onChange={e => setFormData({...formData, importDate: e.target.value})} required /></div>
               <div><label>Số tờ khai:</label><input type="text" value={formData.customsDeclarationNo} onChange={e => setFormData({...formData, customsDeclarationNo: e.target.value})} required /></div>
               <div><label>Tên sản phẩm:</label><input type="text" value={formData.productName} onChange={e => setFormData({...formData, productName: e.target.value})} required /></div>
               <div><label>Mã sản phẩm:</label><input type="text" value={formData.productCode} onChange={e => setFormData({...formData, productCode: e.target.value})} /></div>
