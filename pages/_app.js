@@ -8,19 +8,21 @@ export default function App({ Component, pageProps }) {
   const t = {
     VN: {
       title: 'CÔNG TY TNHH MÁY MÓC TINH HẰNG VIỆT NAM',
-      dashboard: 'Tổng quan & Cảnh báo',
+      dashboard: 'Tổng quan',
       po: 'Quản lý PO',
-      ocr: 'Đơn sản xuất (AI OCR)',
-      inventory: 'Nhập & Tồn kho',
-      delivery: 'In Biên bản giao hàng',
+      customers: 'Khách hàng',
+      production: 'Sản xuất',
+      inventory: 'Tồn kho',
+      delivery: 'Giao hàng',
     },
     CN: {
       title: '越南精恒机械有限公司',
-      dashboard: '概览与预警',
+      dashboard: '概览',
       po: 'PO 管理',
-      ocr: '生产单 (AI OCR)',
-      inventory: '入库与库存',
-      delivery: '打印送货单',
+      customers: '客户管理',
+      production: '生产',
+      inventory: '库存',
+      delivery: '送货单',
     }
   }[lang];
 
@@ -40,11 +42,14 @@ export default function App({ Component, pageProps }) {
             </button>
           </div>
         </div>
+        
+        {/* Menu ngang hàng các module */}
         <nav className="bg-blue-800 border-t border-blue-700">
-          <div className="max-w-7xl mx-auto px-4 flex space-x-6 text-sm font-medium py-2">
+          <div className="max-w-7xl mx-auto px-4 flex flex-wrap gap-x-6 text-sm font-medium py-2">
             <Link href="/" className="hover:text-blue-200">{t.dashboard}</Link>
             <Link href="/po-management" className="hover:text-blue-200">{t.po}</Link>
-            <Link href="/production-ocr" className="hover:text-blue-200">{t.ocr}</Link>
+            <Link href="/customers" className="hover:text-blue-200">{t.customers}</Link>
+            <Link href="/production" className="hover:text-blue-200">{t.production}</Link>
             <Link href="/inventory" className="hover:text-blue-200">{t.inventory}</Link>
             <Link href="/delivery-note" className="hover:text-blue-200">{t.delivery}</Link>
           </div>
