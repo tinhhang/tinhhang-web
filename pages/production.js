@@ -4,12 +4,11 @@ import { supabase } from '../lib/supabaseClient';
 export default function ProductionPage() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [parsingAi, setParsingAi] = useState(false);
   
-  // State quản lý việc hiển thị Modal Upload & Giao diện Rà soát Split-Screen
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [currentPdfUrl, setCurrentPdfUrl] = useState('');
   
-  // State form nhập liệu đơn sản xuất
   const [formData, setFormData] = useState({
     ma_don_hang: '',
     ngay_xuong_don: '',
@@ -21,7 +20,6 @@ export default function ProductionPage() {
     chat_lieu: ''
   });
 
-  // 1. Tải danh sách đơn sản xuất khi vào trang
   const fetchOrders = async () => {
     const { data, error } = await supabase
       .from('production_orders')
@@ -34,7 +32,6 @@ export default function ProductionPage() {
     fetchOrders();
   }, []);
 
-  // 2. Xử lý upload file PDF lên Supabase Storage
   const handleFileUpload = async (e) => {
     try {
       setLoading(true);
@@ -44,20 +41,22 @@ export default function ProductionPage() {
       const fileExt = file.name.split('.').pop();
       const fileName = `${Date.now()}.${fileExt}`;
 
-      // Upload vào bucket 'production_files'
       const { error: uploadError } = await supabase.storage
         .from('production_files')
         .upload(fileName, file);
 
       if (uploadError) throw uploadError;
 
-      // Lấy link công khai của file
       const { data: publicUrlData } = supabase.storage
         .from('production_files')
         .getPublicUrl(fileName);
 
       setCurrentPdfUrl(publicUrlData.publicUrl);
-      setShowUploadModal(false); // Tắt popup upload, chuyển sang màn hình rà soát
+      setShowUploadModal(false);
+      
+      // Tự động gọi AI đọc luôn ngay khi upload xong cho nhanh!
+      handleAutoParseAi(publicUrlData.publicUrl);
+
     } catch (error) {
       alert('Lỗi upload file: ' + error.message);
     } finally {
@@ -65,7 +64,33 @@ export default function ProductionPage() {
     }
   };
 
-  // 3. Lưu thông tin đơn sản xuất vào bảng Database
+  // Hàm gọi AI đọc file PDF
+  const handleAutoParseAi = async (pdfUrlToScan) => {
+    try {
+      setParsingAi(true);
+      const res = await fetch('/api/parse-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pdfUrl: pdfUrlToScan || currentPdfUrl })
+      });
+      
+      const result = await res.json();
+      if (result.success && result.data) {
+        setFormData(prev => ({
+          ...prev,
+          ...result.data
+        }));
+      } else {
+        alert('AI không trích xuất được dữ liệu, bà nhập tay giúp tôi nhé!');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Lỗi kết nối AI scan.');
+    } finally {
+      setParsingAi(false);
+    }
+  };
+
   const handleSaveOrder = async () => {
     if (!formData.ma_don_hang || !formData.ngay_xuong_don) {
       alert('Vui lòng điền mã đơn hàng và ngày xuống đơn!');
@@ -80,29 +105,42 @@ export default function ProductionPage() {
       alert('Lỗi khi lưu: ' + error.message);
     } else {
       alert('Đã lưu đơn sản xuất thành công!');
-      setCurrentPdfUrl(''); // Reset về màn hình danh sách
-      fetchOrders(); // Tải lại danh sách
+      setCurrentPdfUrl('');
+      fetchOrders();
     }
   };
 
-  // --- GIAO DIỆN 1: NẾU ĐANG TRONG QUÁ TRÌNH UPLOAD VÀ RÀ SOÁT (SPLIT-SCREEN) ---
+  // GIAO DIỆN SPLIT-SCREEN (RÀ SOÁT & ĐIỀN AI)
   if (currentPdfUrl) {
     return (
       <div className="flex h-screen w-full bg-gray-50">
-        {/* Bên trái: Xem file PDF gốc */}
         <div className="w-1/2 h-full border-r bg-white">
           <iframe src={currentPdfUrl} className="w-full h-full" title="PDF Preview" />
         </div>
 
-        {/* Bên phải: Form rà soát dữ liệu */}
         <div className="w-1/2 h-full p-8 overflow-y-auto">
-          <div className="flex justify-between items-center mb-6">
+          <div className="flex justify-between items-center mb-4">
             <h2 className="text-2xl font-bold">Rà soát & Nhập đơn sản xuất</h2>
             <button 
               onClick={() => setCurrentPdfUrl('')} 
               className="text-red-500 hover:underline text-sm"
             >
               Quay lại danh sách
+            </button>
+          </div>
+
+          {/* Nút kích hoạt AI đọc thủ công nếu muốn */}
+          <div className="mb-6">
+            <button
+              onClick={() => handleAutoParseAi(currentPdfUrl)}
+              disabled={parsingAi}
+              className="w-full bg-purple-600 text-white py-2.5 rounded-lg font-medium hover:bg-purple-700 flex items-center justify-center gap-2 shadow transition"
+            >
+              {parsingAi ? (
+                <>⏳ AI đang đọc đơn hàng, bà đợi tí...</>
+              ) : (
+                <>✨ Tự động điền thông tin bằng AI</>
+              )}
             </button>
           </div>
 
@@ -114,7 +152,6 @@ export default function ProductionPage() {
                 value={formData.ma_don_hang}
                 onChange={(e) => setFormData({...formData, ma_don_hang: e.target.value})}
                 className="w-full p-2 border rounded" 
-                placeholder="Nhập mã đơn hàng..."
               />
             </div>
             <div>
@@ -193,7 +230,7 @@ export default function ProductionPage() {
     );
   }
 
-  // --- GIAO DIỆN 2: TRANG CHỦ DANH SÁCH ĐƠN SẢN XUẤT ---
+  // GIAO DIỆN TRANG CHỦ DANH SÁCH
   return (
     <div className="p-8 max-w-7xl mx-auto">
       <div className="flex justify-between items-center mb-6">
@@ -206,7 +243,6 @@ export default function ProductionPage() {
         </button>
       </div>
 
-      {/* Bảng hiển thị danh sách đơn */}
       <div className="bg-white shadow rounded-lg overflow-hidden border">
         <table className="w-full text-left border-collapse">
           <thead>
@@ -217,14 +253,13 @@ export default function ProductionPage() {
               <th className="p-3">Mã hàng</th>
               <th className="p-3">Tên sản phẩm</th>
               <th className="p-3">Số lượng</th>
-              <th className="p-3">Trạng thái chứng từ</th>
               <th className="p-3">File gốc</th>
             </tr>
           </thead>
           <tbody>
             {orders.length === 0 ? (
               <tr>
-                <td colSpan={8} className="text-center p-6 text-gray-500">Chưa có đơn sản xuất nào được tạo.</td>
+                <td colSpan={7} className="text-center p-6 text-gray-500">Chưa có đơn sản xuất nào được tạo.</td>
               </tr>
             ) : (
               orders.map((item) => (
@@ -235,11 +270,6 @@ export default function ProductionPage() {
                   <td className="p-3">{item.ma_hang}</td>
                   <td className="p-3">{item.ten_san_pham}</td>
                   <td className="p-3">{item.so_luong}</td>
-                  <td className="p-3">
-                    <span className="px-2 py-1 rounded text-xs bg-yellow-100 text-yellow-800">
-                      {item.trang_thai_chung_tu}
-                    </span>
-                  </td>
                   <td className="p-3">
                     {item.file_url && (
                       <a href={item.file_url} target="_blank" rel="noreferrer" className="text-blue-600 underline">
@@ -254,7 +284,6 @@ export default function ProductionPage() {
         </table>
       </div>
 
-      {/* MODAL UPLOAD FILE */}
       {showUploadModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white p-6 rounded-xl w-[400px] shadow-lg">
@@ -272,7 +301,7 @@ export default function ProductionPage() {
                 onClick={() => setShowUploadModal(false)}
                 className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm"
               >
-              Đóng
+                Đóng
               </button>
             </div>
           </div>
