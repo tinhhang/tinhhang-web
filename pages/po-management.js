@@ -7,6 +7,9 @@ export default function POManagement() {
   const [loading, setLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
   
+  // State tìm kiếm khách hàng trong ô select/input
+  const [customerSearch, setCustomerSearch] = useState('');
+
   const [formData, setFormData] = useState({
     po_number: '',
     customer_code: '',
@@ -31,7 +34,6 @@ export default function POManagement() {
 
   const fetchData = async () => {
     setLoading(true);
-    // Tải danh sách PO
     const { data: poData, error: poError } = await supabase
       .from('po_list')
       .select('*')
@@ -40,7 +42,7 @@ export default function POManagement() {
     if (poError) console.error('Lỗi tải PO:', poError.message);
     else if (poData) setPoList(poData);
 
-    // Tải danh sách khách hàng từ bảng customers để làm ô chọn (select)
+    // Tải danh sách khách hàng từ bảng customers
     const { data: cusData, error: cusError } = await supabase.from('customers').select('*');
     if (cusError) console.error('Lỗi tải khách hàng:', cusError.message);
     else if (cusData) setCustomers(cusData);
@@ -54,9 +56,13 @@ export default function POManagement() {
 
   const handleAddPO = async (e) => {
     e.preventDefault();
-    let fileUrl = '';
+    
+    if (!formData.customer_code) {
+      alert('Vui lòng chọn hoặc nhập mã khách hàng!');
+      return;
+    }
 
-    // 1. Upload file PO gốc (nếu có chọn) lên Supabase Storage bucket 'po_files'
+    let fileUrl = '';
     if (poFile) {
       const fileName = `${Date.now()}_${poFile.name}`;
       const { data: uploadData, error: uploadError } = await supabase.storage
@@ -64,7 +70,7 @@ export default function POManagement() {
         .upload(fileName, poFile);
 
       if (uploadError) {
-        alert('Lỗi tải lên file PO: ' + uploadError.message + '\n(Hãy kiểm tra lại Storage Bucket tên là po_files trên Supabase)');
+        alert('Lỗi tải lên file PO: ' + uploadError.message + '\n(Hãy kiểm tra lại Storage Bucket "po_files" trên Supabase)');
         return;
       }
       
@@ -72,7 +78,6 @@ export default function POManagement() {
       fileUrl = urlData.publicUrl;
     }
 
-    // 2. Thêm dữ liệu vào bảng po_list
     const newRow = {
       po_number: formData.po_number,
       customer_code: formData.customer_code,
@@ -81,7 +86,6 @@ export default function POManagement() {
       quantity: Number(formData.quantity),
       unit_price: Number(formData.unit_price),
       po_date: formData.po_date || null,
-      // file_url: fileUrl // Bật dòng này nếu bảng po_list của bà có cột lưu đường dẫn file
     };
 
     const { error } = await supabase.from('po_list').insert([newRow]);
@@ -100,10 +104,19 @@ export default function POManagement() {
         unit_price: 0,
         po_date: new Date().toISOString().split('T')[0]
       });
+      setCustomerSearch('');
       setPoFile(null);
       await fetchData();
     }
   };
+
+  // Lọc danh sách khách hàng theo từ khóa người dùng gõ (tìm theo cả mã hoặc tên)
+  const filteredCustomers = customers.filter(c => {
+    const code = String(c.customer_code || c.code || '').toLowerCase();
+    const name = String(c.customer_name || c.name || '').toLowerCase();
+    const keyword = customerSearch.toLowerCase();
+    return code.includes(keyword) || name.includes(keyword);
+  });
 
   return (
     <div style={{ padding: '20px', fontFamily: 'sans-serif' }}>
@@ -169,16 +182,25 @@ export default function POManagement() {
                 <input type="text" value={formData.po_number} onChange={e => setFormData({...formData, po_number: e.target.value})} required style={{ width: '100%', padding: '6px' }} />
               </div>
 
+              {/* Phần chọn và tìm kiếm khách hàng thông minh */}
               <div style={{ marginBottom: '10px' }}>
-                <label>Mã Khách hàng (Chọn từ danh sách): </label>
+                <label>Khách hàng (Nhập để tìm kiếm theo tên hoặc mã): </label>
+                <input 
+                  type="text" 
+                  placeholder="🔍 Gõ tên hoặc mã khách hàng để lọc..." 
+                  value={customerSearch}
+                  onChange={e => setCustomerSearch(e.target.value)}
+                  style={{ width: '100%', padding: '6px', marginBottom: '4px', border: '1px solid #ccc', borderRadius: '4px' }}
+                />
                 <select 
                   value={formData.customer_code} 
                   onChange={e => setFormData({...formData, customer_code: e.target.value})} 
                   required 
-                  style={{ width: '100%', padding: '6px' }}
+                  size="4" // Hiển thị sẵn vài dòng danh sách cho dễ chọn
+                  style={{ width: '100%', padding: '6px', background: '#fff' }}
                 >
-                  <option value="">-- Chọn khách hàng --</option>
-                  {customers.map((c, idx) => {
+                  <option value="">-- Chọn khách hàng từ kết quả lọc bên trên --</option>
+                  {filteredCustomers.map((c, idx) => {
                     const code = c.customer_code || c.code;
                     const name = c.customer_name || c.name;
                     return (
@@ -188,7 +210,7 @@ export default function POManagement() {
                     );
                   })}
                 </select>
-                <small style={{ color: '#666' }}>* Nếu chưa có khách hàng, hãy vào mục Quản lý Khách hàng để thêm trước.</small>
+                <small style={{ color: '#666' }}>* Đã chọn mã: <strong>{formData.customer_code || 'Chưa chọn'}</strong></small>
               </div>
 
               <div style={{ marginBottom: '10px' }}>
