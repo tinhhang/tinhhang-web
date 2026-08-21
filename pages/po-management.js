@@ -3,10 +3,10 @@ import { supabase } from '../lib/supabaseClient';
 
 export default function POManagement() {
   const [poList, setPoList] = useState([]);
+  const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
   
-  // State form tương ứng chính xác với các cột trong bảng po_list của Supabase
   const [formData, setFormData] = useState({
     po_number: '',
     customer_code: '',
@@ -16,8 +16,9 @@ export default function POManagement() {
     unit_price: 0,
     po_date: new Date().toISOString().split('T')[0]
   });
+  
+  const [poFile, setPoFile] = useState(null);
 
-  // Format ngày hiển thị Việt Nam (DD/MM/YYYY)
   const formatDateForDisplay = (val) => {
     if (!val) return '';
     const d = new Date(val);
@@ -28,29 +29,50 @@ export default function POManagement() {
     return `${day}/${month}/${year}`;
   };
 
-  // Tải danh sách PO từ bảng po_list
-  const fetchPOList = async () => {
+  const fetchData = async () => {
     setLoading(true);
-    const { data, error } = await supabase
+    // Tải danh sách PO
+    const { data: poData, error: poError } = await supabase
       .from('po_list')
       .select('*')
       .order('id', { ascending: false });
 
-    if (error) {
-      console.error('Lỗi khi tải danh sách PO:', error.message);
-    } else if (data) {
-      setPoList(data);
-    }
+    if (poError) console.error('Lỗi tải PO:', poError.message);
+    else if (poData) setPoList(poData);
+
+    // Tải danh sách khách hàng để chọn đúng mã, tránh lỗi khóa ngoại
+    const { data: cusData } = await supabase.from('customers').select('*');
+    if (cusData) setCustomers(cusData);
+
     setLoading(false);
   };
 
   useEffect(() => {
-    fetchPOList();
+    fetchData();
   }, []);
 
-  // Thêm mới PO vào bảng po_list
   const handleAddPO = async (e) => {
     e.preventDefault();
+    let fileUrl = '';
+
+    // 1. Nếu có chọn file PDF/Ảnh gốc của PO, tiến hành upload lên Supabase Storage
+    if (poFile) {
+      const fileName = `${Date.now()}_${poFile.name}`;
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('po_files') // Tên bucket trên Supabase Storage của bà
+        .upload(fileName, poFile);
+
+      if (uploadError) {
+        alert('Lỗi tải lên file PO: ' + uploadError.message + '\n(Hãy chắc chắn đã tạo Storage Bucket tên là po_files)');
+        return;
+      }
+      
+      // Lấy public URL của file vừa upload
+      const { data: urlData } = supabase.storage.from('po_files').getPublicUrl(fileName);
+      fileUrl = urlData.publicUrl;
+    }
+
+    // 2. Thêm mới dữ liệu vào bảng po_list
     const newRow = {
       po_number: formData.po_number,
       customer_code: formData.customer_code,
@@ -58,7 +80,9 @@ export default function POManagement() {
       product_code: formData.product_code,
       quantity: Number(formData.quantity),
       unit_price: Number(formData.unit_price),
-      po_date: formData.po_date || null
+      po_date: formData.po_date || null,
+      // Nếu bảng po_list của bà có cột lưu link file (ví dụ file_url), bật dòng dưới:
+      // file_url: fileUrl 
     };
 
     const { error } = await supabase.from('po_list').insert([newRow]);
@@ -77,7 +101,8 @@ export default function POManagement() {
         unit_price: 0,
         po_date: new Date().toISOString().split('T')[0]
       });
-      await fetchPOList();
+      setPoFile(null);
+      await fetchData();
     }
   };
 
@@ -134,17 +159,32 @@ export default function POManagement() {
       {/* Modal thêm mới PO */}
       {showModal && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: '#fff', padding: '20px', borderRadius: '8px', width: '450px' }}>
-            <h2>Thêm dòng PO</h2>
+          <div style={{ background: '#fff', padding: '20px', borderRadius: '8px', width: '480px', maxHeight: '90vh', overflowY: 'auto' }}>
+            <h2>Thêm dòng PO & Tải file gốc</h2>
             <form onSubmit={handleAddPO}>
               <div style={{ marginBottom: '10px' }}>
                 <label>Số PO: </label>
                 <input type="text" value={formData.po_number} onChange={e => setFormData({...formData, po_number: e.target.value})} required style={{ width: '100%', padding: '6px' }} />
               </div>
+
               <div style={{ marginBottom: '10px' }}>
-                <label>Mã Khách hàng: </label>
-                <input type="text" value={formData.customer_code} onChange={e => setFormData({...formData, customer_code: e.target.value})} style={{ width: '100%', padding: '6px' }} />
+                <label>Mã Khách hàng (Chọn từ danh sách hệ thống): </label>
+                <select 
+                  value={formData.customer_code} 
+                  onChange={e => setFormData({...formData, customer_code: e.target.value})} 
+                  required 
+                  style={{ width: '100%', padding: '6px' }}
+                >
+                  <option value="">-- Chọn khách hàng --</option>
+                  {customers.map((c, idx) => (
+                    <option key={idx} value={c.customer_code || c.code || c.name}>
+                      {c.customer_code || c.code} - {c.customer_name || c.name}
+                    </option>
+                  ))}
+                </select>
+                <small style={{ color: '#666' }}>* Phải chọn đúng mã có sẵn để không bị lỗi khóa ngoại Supabase.</small>
               </div>
+
               <div style={{ marginBottom: '10px' }}>
                 <label>Tên sản phẩm: </label>
                 <input type="text" value={formData.product_name} onChange={e => setFormData({...formData, product_name: e.target.value})} required style={{ width: '100%', padding: '6px' }} />
@@ -165,6 +205,12 @@ export default function POManagement() {
                 <label>Ngày PO: </label>
                 <input type="date" value={formData.po_date} onChange={e => setFormData({...formData, po_date: e.target.value})} style={{ width: '100%', padding: '6px' }} />
               </div>
+
+              <div style={{ marginBottom: '10px', background: '#f9f9f9', padding: '8px', border: '1px dashed #ccc' }}>
+                <label><strong>Tải file PO gốc (PDF / Ảnh):</strong> </label>
+                <input type="file" accept=".pdf,image/*" onChange={e => setFile(e.target.files[0])} style={{ width: '100%', marginTop: '5px' }} />
+              </div>
+
               <div style={{ marginTop: '15px', display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
                 <button type="submit" style={{ padding: '8px 16px', background: '#0070f3', color: '#fff', border: 'none', borderRadius: '4px' }}>Lưu</button>
                 <button type="button" onClick={() => setShowModal(false)} style={{ padding: '8px 16px' }}>Hủy</button>
