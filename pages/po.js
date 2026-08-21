@@ -2,85 +2,174 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient';
 
 export default function POManagement() {
-  const [pos, setPos] = useState([]);
+  const [poList, setPoList] = useState([]);
+  const [loading, setLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
-  const [newPo, setNewPo] = useState({ po_number: '', customer_name: '', order_date: new Date().toISOString().split('T')[0], delivery_date: '', status: 'Chờ duyệt' });
-  const [items, setItems] = useState([{ product_code: '', quantity: 1, unit_price: 0 }]);
+  
+  // State form tương ứng chính xác với các cột trong bảng po_list của Supabase
+  const [formData, setFormData] = useState({
+    po_number: '',
+    customer_code: '',
+    product_name: '',
+    product_code: '',
+    quantity: 1,
+    unit_price: 0,
+    po_date: new Date().toISOString().split('T')[0]
+  });
 
-  const fetchPOs = async () => {
-    const { data } = await supabase.from('po_management').select('*, po_items(*)').order('id', { ascending: false });
-    if (data) setPos(data);
+  // Format ngày hiển thị Việt Nam (DD/MM/YYYY)
+  const formatDateForDisplay = (val) => {
+    if (!val) return '';
+    const d = new Date(val);
+    if (isNaN(d.getTime())) return String(val);
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    return `${day}/${month}/${year}`;
   };
 
-  useEffect(() => { fetchPOs(); }, []);
+  // Tải danh sách PO từ bảng po_list
+  const fetchPOList = async () => {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from('po_list')
+      .select('*')
+      .order('id', { ascending: false });
 
-  const addItem = () => setItems([...items, { product_code: '', quantity: 1, unit_price: 0 }]);
+    if (error) {
+      console.error('Lỗi khi tải danh sách PO:', error.message);
+    } else if (data) {
+      setPoList(data);
+    }
+    setLoading(false);
+  };
 
-  const savePO = async () => {
-    // 1. Lưu thông tin chung
-    const { data: po, error: poError } = await supabase
-      .from('po_management')
-      .insert([newPo])
-      .select();
+  useEffect(() => {
+    fetchPOList();
+  }, []);
 
-    if (poError) { alert('Lỗi PO: ' + poError.message); return; }
+  // Thêm mới PO vào bảng po_list
+  const handleAddPO = async (e) => {
+    e.preventDefault();
+    const newRow = {
+      po_number: formData.po_number,
+      customer_code: formData.customer_code,
+      product_name: formData.product_name,
+      product_code: formData.product_code,
+      quantity: Number(formData.quantity),
+      unit_price: Number(formData.unit_price),
+      po_date: formData.po_date || null
+    };
 
-    // 2. Lưu chi tiết sản phẩm
-    const poItems = items.map(item => ({ ...item, po_id: po[0].id }));
-    const { error: itemsError } = await supabase.from('po_items').insert(poItems);
+    const { error } = await supabase.from('po_list').insert([newRow]);
 
-    if (itemsError) alert('Lỗi chi tiết: ' + itemsError.message);
-    else { alert('Tạo PO thành công!'); setShowModal(false); fetchPOs(); }
+    if (error) {
+      alert('Lỗi khi thêm PO: ' + error.message);
+    } else {
+      alert('Thêm dòng PO thành công!');
+      setShowModal(false);
+      setFormData({
+        po_number: '',
+        customer_code: '',
+        product_name: '',
+        product_code: '',
+        quantity: 1,
+        unit_price: 0,
+        po_date: new Date().toISOString().split('T')[0]
+      });
+      await fetchPOList();
+    }
   };
 
   return (
-    <div style={{ padding: '20px' }}>
-      <h1>Quản lý PO</h1>
-      <button onClick={() => setShowModal(true)}>+ Tạo PO mới</button>
+    <div style={{ padding: '20px', fontFamily: 'sans-serif' }}>
+      <h1>Quản lý PO (po_list)</h1>
 
-      <table border="1" style={{ width: '100%', marginTop: '20px', borderCollapse: 'collapse' }}>
+      <div style={{ marginBottom: '20px' }}>
+        <button 
+          onClick={() => setShowModal(true)}
+          style={{ padding: '8px 16px', cursor: 'pointer', background: '#0070f3', color: '#fff', border: 'none', borderRadius: '4px' }}
+        >
+          + Thêm dòng PO mới
+        </button>
+      </div>
+
+      {loading && <p>Đang tải dữ liệu PO...</p>}
+
+      <table border="1" cellPadding="8" cellSpacing="0" style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
-          <tr style={{ background: '#eee' }}>
-            <th>Mã PO</th><th>Khách</th><th>Trạng thái</th><th>Chi tiết</th>
+          <tr style={{ background: '#f2f2f2' }}>
+            <th>STT</th>
+            <th>Số PO</th>
+            <th>Mã Khách hàng</th>
+            <th>Tên sản phẩm</th>
+            <th>Mã sản phẩm</th>
+            <th>Số lượng</th>
+            <th>Đơn giá</th>
+            <th>Ngày PO</th>
           </tr>
         </thead>
         <tbody>
-          {pos.map(po => (
-            <tr key={po.id}>
-              <td>{po.po_number}</td>
-              <td>{po.customer_name}</td>
-              <td>{po.status}</td>
-              <td>{po.po_items?.map(i => `${i.product_code} (x${i.quantity})`).join(', ')}</td>
+          {poList.length === 0 && !loading ? (
+            <tr>
+              <td colSpan="8" style={{ textAlign: 'center' }}>Chưa có dữ liệu PO nào</td>
             </tr>
-          ))}
+          ) : (
+            poList.map((po, index) => (
+              <tr key={po.id || index}>
+                <td>{index + 1}</td>
+                <td><strong>{po.po_number}</strong></td>
+                <td>{po.customer_code}</td>
+                <td>{po.product_name}</td>
+                <td>{po.product_code}</td>
+                <td>{po.quantity}</td>
+                <td>{po.unit_price ? po.unit_price.toLocaleString('vi-VN') : 0}</td>
+                <td>{formatDateForDisplay(po.po_date)}</td>
+              </tr>
+            ))
+          )}
         </tbody>
       </table>
 
+      {/* Modal thêm mới PO */}
       {showModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: '#fff', padding: '20px', width: '500px' }}>
-            <h2>Tạo PO</h2>
-            <input placeholder="Số PO" onChange={e => setNewPo({...newPo, po_number: e.target.value})} />
-            <input placeholder="Khách hàng" onChange={e => setNewPo({...newPo, customer_name: e.target.value})} />
-            
-            <h3>Chi tiết sản phẩm</h3>
-            {items.map((item, idx) => (
-              <div key={idx} style={{ display: 'flex', gap: '5px' }}>
-                <input placeholder="Mã hàng" onChange={e => {
-                  let newItems = [...items];
-                  newItems[idx].product_code = e.target.value;
-                  setItems(newItems);
-                }} />
-                <input type="number" placeholder="SL" onChange={e => {
-                  let newItems = [...items];
-                  newItems[idx].quantity = e.target.value;
-                  setItems(newItems);
-                }} />
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: '#fff', padding: '20px', borderRadius: '8px', width: '450px' }}>
+            <h2>Thêm dòng PO</h2>
+            <form onSubmit={handleAddPO}>
+              <div style={{ marginBottom: '10px' }}>
+                <label>Số PO: </label>
+                <input type="text" value={formData.po_number} onChange={e => setFormData({...formData, po_number: e.target.value})} required style={{ width: '100%', padding: '6px' }} />
               </div>
-            ))}
-            <button onClick={addItem}>+ Thêm dòng</button>
-            <button onClick={savePO}>Lưu toàn bộ PO</button>
-            <button onClick={() => setShowModal(false)}>Đóng</button>
+              <div style={{ marginBottom: '10px' }}>
+                <label>Mã Khách hàng: </label>
+                <input type="text" value={formData.customer_code} onChange={e => setFormData({...formData, customer_code: e.target.value})} style={{ width: '100%', padding: '6px' }} />
+              </div>
+              <div style={{ marginBottom: '10px' }}>
+                <label>Tên sản phẩm: </label>
+                <input type="text" value={formData.product_name} onChange={e => setFormData({...formData, product_name: e.target.value})} required style={{ width: '100%', padding: '6px' }} />
+              </div>
+              <div style={{ marginBottom: '10px' }}>
+                <label>Mã sản phẩm: </label>
+                <input type="text" value={formData.product_code} onChange={e => setFormData({...formData, product_code: e.target.value})} style={{ width: '100%', padding: '6px' }} />
+              </div>
+              <div style={{ marginBottom: '10px' }}>
+                <label>Số lượng: </label>
+                <input type="number" value={formData.quantity} onChange={e => setFormData({...formData, quantity: e.target.value})} required style={{ width: '100%', padding: '6px' }} />
+              </div>
+              <div style={{ marginBottom: '10px' }}>
+                <label>Đơn giá: </label>
+                <input type="number" value={formData.unit_price} onChange={e => setFormData({...formData, unit_price: e.target.value})} style={{ width: '100%', padding: '6px' }} />
+              </div>
+              <div style={{ marginBottom: '10px' }}>
+                <label>Ngày PO: </label>
+                <input type="date" value={formData.po_date} onChange={e => setFormData({...formData, po_date: e.target.value})} style={{ width: '100%', padding: '6px' }} />
+              </div>
+              <div style={{ marginTop: '15px', display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                <button type="submit" style={{ padding: '8px 16px', background: '#0070f3', color: '#fff', border: 'none', borderRadius: '4px' }}>Lưu</button>
+                <button type="button" onClick={() => setShowModal(false)} style={{ padding: '8px 16px' }}>Hủy</button>
+              </div>
+            </form>
           </div>
         </div>
       )}
