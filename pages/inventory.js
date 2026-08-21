@@ -62,7 +62,7 @@ export default function Inventory({ lang }) {
     }
   }
 
-  // Xử lý đọc file Excel thật
+  // Xử lý đọc file Excel chuẩn xác theo thứ tự Cột
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -74,25 +74,46 @@ export default function Inventory({ lang }) {
         const wb = XLSX.read(bstr, { type: 'binary' });
         const wsname = wb.SheetNames[0];
         const ws = wb.Sheets[wsname];
-        const rawData = XLSX.utils.sheet_to_json(ws);
 
-        // Chuẩn hóa dữ liệu đọc từ Excel
-        const parsedItems = rawData.map((row) => ({
-          code: row['Mã Sản Phẩm'] || row['Mã hàng'] || row['Mã SP'] || row['Code'] || Object.values(row)[0] || '',
-          name: row['Tên Sản Phẩm / Quy Cách'] || row['Tên hàng'] || row['Tên SP'] || row['Name'] || Object.values(row)[1] || '',
-          unit: row['ĐVT'] || row['Đơn vị'] || row['Unit'] || Object.values(row)[2] || 'Bộ',
-          quantity: Number(row['Số Lượng Tồn Kho'] || row['Số lượng'] || row['Tồn kho'] || row['Qty'] || Object.values(row)[3] || 0)
-        }));
+        // Đọc dữ liệu dạng mảng 2 chiều [[hàng 1], [hàng 2], ...]
+        const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+        const parsedItems = [];
 
-        // Hiển thị ngay lên giao diện
-        setItems((prev) => [...parsedItems, ...prev]);
+        // Lặp qua từng hàng để lọc ra dữ liệu thật
+        for (let i = 0; i < rows.length; i++) {
+          const row = rows[i];
+          if (!row || row.length === 0) continue;
 
-        // Đẩy thẳng vào Supabase
+          // Tìm xem hàng nào có mô tả/tên sản phẩm dài (dữ liệu thật)
+          const nameIdx = row.findIndex(cell => typeof cell === 'string' && cell.length > 10 && !cell.includes('Mã') && !cell.includes('STT'));
+          
+          if (nameIdx !== -1) {
+            const name = row[nameIdx];
+            const code = row[nameIdx - 1] || row[0] || '';
+            const unit = row[nameIdx + 1] || 'Bộ';
+            let qty = Number(row[nameIdx + 2] || row[row.length - 1] || 1);
+            if (isNaN(qty)) qty = 1;
+
+            parsedItems.push({
+              code: String(code).trim(),
+              name: String(name).trim(),
+              unit: String(unit).trim(),
+              quantity: qty
+            });
+          }
+        }
+
+        if (parsedItems.length === 0) {
+          alert('Không tìm thấy dòng dữ liệu phù hợp trong file Excel!');
+          return;
+        }
+
+        setItems(parsedItems);
         await supabase.from('inventory').insert(parsedItems);
-        alert(' Import thành công ' + parsedItems.length + ' dòng dữ liệu!');
+        alert(`Import thành công ${parsedItems.length} sản phẩm!`);
       } catch (err) {
         console.error('Lỗi đọc file Excel:', err);
-        alert('Lỗi đọc file! Bà kiểm tra lại file Excel nha.');
+        alert('Có lỗi xảy ra khi đọc file Excel!');
       }
     };
     reader.readAsBinaryString(file);
