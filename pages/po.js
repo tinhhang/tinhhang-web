@@ -1,64 +1,89 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient';
 
-export default function POManagement({ lang }) {
+export default function POManagement() {
   const [pos, setPos] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [showModal, setShowModal] = useState(false);
+  const [newPo, setNewPo] = useState({ po_number: '', customer_name: '', order_date: new Date().toISOString().split('T')[0], delivery_date: '', status: 'Chờ duyệt' });
+  const [items, setItems] = useState([{ product_code: '', quantity: 1, unit_price: 0 }]);
 
-  const t = {
-    VN: { title: 'Quản Lý Đơn Hàng (PO)', poNumber: 'Số PO', customer: 'Khách Hàng', orderDate: 'Ngày Đặt Hàng', deliveryDate: 'Ngày Giao Hàng', status: 'Trạng Thái', empty: 'Chưa có đơn hàng (PO) nào.' },
-    CN: { title: 'PO 订单管理', poNumber: 'PO 编号', customer: '客户', orderDate: '下单日期', deliveryDate: '交货日期', status: '状态', empty: '暂无 PO 订单。' }
-  }[lang || 'VN'];
+  const fetchPOs = async () => {
+    const { data } = await supabase.from('po_management').select('*, po_items(*)').order('id', { ascending: false });
+    if (data) setPos(data);
+  };
 
-  useEffect(() => {
-    async function fetchPOs() {
-      try {
-        setLoading(true);
-        const { data, error } = await supabase.from('orders').select('*');
-        if (error) throw error;
-        setPos(data || []);
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setLoading(false);
-      }
-    }
-    fetchPOs();
-  }, []);
+  useEffect(() => { fetchPOs(); }, []);
+
+  const addItem = () => setItems([...items, { product_code: '', quantity: 1, unit_price: 0 }]);
+
+  const savePO = async () => {
+    // 1. Lưu thông tin chung
+    const { data: po, error: poError } = await supabase
+      .from('po_management')
+      .insert([newPo])
+      .select();
+
+    if (poError) { alert('Lỗi PO: ' + poError.message); return; }
+
+    // 2. Lưu chi tiết sản phẩm
+    const poItems = items.map(item => ({ ...item, po_id: po[0].id }));
+    const { error: itemsError } = await supabase.from('po_items').insert(poItems);
+
+    if (itemsError) alert('Lỗi chi tiết: ' + itemsError.message);
+    else { alert('Tạo PO thành công!'); setShowModal(false); fetchPOs(); }
+  };
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-800">{t.title}</h1>
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <table className="min-w-full divide-y divide-gray-200 text-sm text-left">
-          <thead className="bg-gray-100 font-semibold text-gray-700">
-            <tr>
-              <th className="px-6 py-3">{t.poNumber}</th>
-              <th className="px-6 py-3">{t.customer}</th>
-              <th className="px-6 py-3">{t.orderDate}</th>
-              <th className="px-6 py-3">{t.deliveryDate}</th>
-              <th className="px-6 py-3">{t.status}</th>
+    <div style={{ padding: '20px' }}>
+      <h1>Quản lý PO</h1>
+      <button onClick={() => setShowModal(true)}>+ Tạo PO mới</button>
+
+      <table border="1" style={{ width: '100%', marginTop: '20px', borderCollapse: 'collapse' }}>
+        <thead>
+          <tr style={{ background: '#eee' }}>
+            <th>Mã PO</th><th>Khách</th><th>Trạng thái</th><th>Chi tiết</th>
+          </tr>
+        </thead>
+        <tbody>
+          {pos.map(po => (
+            <tr key={po.id}>
+              <td>{po.po_number}</td>
+              <td>{po.customer_name}</td>
+              <td>{po.status}</td>
+              <td>{po.po_items?.map(i => `${i.product_code} (x${i.quantity})`).join(', ')}</td>
             </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-200">
-            {loading ? (
-              <tr><td colSpan="5" className="px-6 py-4 text-center text-gray-500">Đang tải...</td></tr>
-            ) : pos.length === 0 ? (
-              <tr><td colSpan="5" className="px-6 py-4 text-center text-gray-500">{t.empty}</td></tr>
-            ) : (
-              pos.map((po, i) => (
-                <tr key={i} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 font-medium text-blue-600">{po.po_number}</td>
-                  <td className="px-6 py-4">{po.customer_name}</td>
-                  <td className="px-6 py-4">{po.order_date}</td>
-                  <td className="px-6 py-4">{po.delivery_date}</td>
-                  <td className="px-6 py-4"><span className="px-2 py-1 text-xs rounded-full bg-blue-100 text-blue-800">{po.status || 'Đang xử lý'}</span></td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+          ))}
+        </tbody>
+      </table>
+
+      {showModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: '#fff', padding: '20px', width: '500px' }}>
+            <h2>Tạo PO</h2>
+            <input placeholder="Số PO" onChange={e => setNewPo({...newPo, po_number: e.target.value})} />
+            <input placeholder="Khách hàng" onChange={e => setNewPo({...newPo, customer_name: e.target.value})} />
+            
+            <h3>Chi tiết sản phẩm</h3>
+            {items.map((item, idx) => (
+              <div key={idx} style={{ display: 'flex', gap: '5px' }}>
+                <input placeholder="Mã hàng" onChange={e => {
+                  let newItems = [...items];
+                  newItems[idx].product_code = e.target.value;
+                  setItems(newItems);
+                }} />
+                <input type="number" placeholder="SL" onChange={e => {
+                  let newItems = [...items];
+                  newItems[idx].quantity = e.target.value;
+                  setItems(newItems);
+                }} />
+              </div>
+            ))}
+            <button onClick={addItem}>+ Thêm dòng</button>
+            <button onClick={savePO}>Lưu toàn bộ PO</button>
+            <button onClick={() => setShowModal(false)}>Đóng</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
