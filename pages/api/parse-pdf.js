@@ -1,7 +1,7 @@
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
 // Khởi tạo Gemini AI SDK mới nhất
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+const ai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 export const config = {
   api: {
