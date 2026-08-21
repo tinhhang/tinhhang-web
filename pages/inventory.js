@@ -85,7 +85,7 @@ export default function Inventory() {
         customsDeclarationNo: item.import_declaration_no,
         exportUnit: item.export_unit,
         delivery_status: item.delivery_status,
-        deliveryStatus: item.delivery_status ? 'Đã giao' : 'Chưa giao',
+        deliveryStatus: item.delivery_status ? 'Đã giao hàng' : 'Chưa giao',
         invoice_status: item.invoice_status,
         invoiceStatus: item.invoice_status || 'Chưa xuất hóa đơn',
         invoice_date: item.invoice_date,
