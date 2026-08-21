@@ -7,8 +7,8 @@ export default function Customers({ lang }) {
   const [loading, setLoading] = useState(false);
 
   const t = {
-    VN: { title: 'Quản lý Danh mục Khách hàng', add: '+ Thêm khách hàng thủ công', import: '📁 Import từ Excel lên Supabase', search: 'Tìm kiếm theo tên khách hàng...', stt: 'STT', code: 'Mã Khách Hàng', name: 'Tên Khách Hàng / Công Ty', address: 'Địa chỉ', tax: 'Mã số thuế', rep: 'Người đại diện', phone: 'Số điện thoại', action: 'Thao tác' },
-    CN: { title: '客户管理', add: '+ 手动添加客户', import: '📁 导入 Excel 到 Supabase', search: '按名称搜索...', stt: '序号', code: '客户代码', name: '客户/公司名称', address: '地址', tax: '税号', rep: '法人代表', phone: '电话', action: '操作' }
+    VN: { title: 'Quản lý Danh mục Khách hàng', add: '+ Thêm khách hàng mới', import: '📁 Thêm hàng loạt', search: 'Tìm kiếm khách hàng...', stt: 'STT', code: 'Mã Khách Hàng', name: 'Tên Khách Hàng / Công Ty', address: 'Địa chỉ', tax: 'Mã số thuế', rep: 'Người đại diện', phone: 'Số điện thoại', action: 'Thao tác' },
+    CN: { title: '客户管理', add: '+ 手动添加客户', import: '📁 Excel导入 ', search: '客户寻找...', stt: '序号', code: '客户代码', name: '客户/公司名称', address: '地址', tax: '税号', rep: '法人代表', phone: '电话', action: '操作' }
   }[lang || 'VN'];
 
   const fetchCustomers = async () => {
