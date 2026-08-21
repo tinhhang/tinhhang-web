@@ -34,25 +34,26 @@
 
           const pStatus = String(colP).trim().toLowerCase() === 'true' || colP === true;
           const hasDateG = colG && String(colG).trim() !== '';
-          let deliveryStatus = 'Chưa giao';
+          let isDelivered = false;
           
           if (pStatus || (!pStatus && hasDateG)) {
-            deliveryStatus = 'Đã giao';
+            isDelivered = true;
           }
 
           let invoiceStatus = pStatus ? 'Đã xuất hóa đơn' : 'Chưa xuất hóa đơn';
           let invoiceDate = pStatus ? formatDate(colJ) : '';
 
+          // Ánh xạ đúng tên cột trong bảng inventory_import của Supabase
           parsedItems.push({
-            importDate: formatDate(colC),
-            productCode: '', 
-            productName: String(colD || '').trim(),
+            import_date: formatDate(colC),
+            product_code: '', 
+            product_name: String(colD || '').trim(),
             quantity: isNaN(Number(colE)) ? 0 : Number(colE),
-            customsDeclarationNo: String(colB || '').trim(),
-            exportUnit: String(colF || '').trim(),
-            deliveryStatus: deliveryStatus,
-            invoiceStatus: invoiceStatus,
-            invoiceDate: invoiceDate
+            import_declaration_no: String(colB || '').trim(),
+            export_unit: String(colF || '').trim(),
+            delivery_status: isDelivered, // Cột bool trên DB
+            invoice_status: invoiceStatus,
+            invoice_date: invoiceDate
           });
         }
 
@@ -62,15 +63,15 @@
           return;
         }
 
-        // Đẩy toàn bộ dữ liệu vào Supabase
-        const { error } = await supabase.from('inventory').insert(parsedItems);
+        // Đẩy toàn bộ dữ liệu vào bảng inventory_import
+        const { error } = await supabase.from('inventory_import').insert(parsedItems);
         
         if (error) {
           console.error('Lỗi khi lưu vào DB:', error);
           alert('Lỗi lưu vào CSDL: ' + error.message);
         } else {
           alert(`Đã Import thành công ${parsedItems.length} dòng dữ liệu!`);
-          await fetchInventory(); // Load lại dữ liệu thực tế từ DB lên UI
+          await fetchInventory(); // Tải lại dữ liệu thực tế từ DB lên UI
         }
       } catch (err) {
         console.error('Lỗi đọc file Excel:', err);
@@ -90,7 +91,7 @@
 
     const item = updatedItems[index];
     if (item.id) {
-      await supabase.from('inventory').update({ productCode: value }).eq('id', item.id);
+      await supabase.from('inventory_import').update({ product_code: value }).eq('id', item.id);
     }
   };
 
@@ -99,20 +100,24 @@
     const updatedItems = [...items];
     const item = updatedItems[index];
 
-    if (item.invoiceStatus === 'Chưa xuất hóa đơn') {
+    if (item.invoiceStatus === 'Chưa xuất hóa đơn' || item.invoice_status === 'Chưa xuất hóa đơn') {
       item.invoiceStatus = 'Đã xuất hóa đơn';
+      item.invoice_status = 'Đã xuất hóa đơn';
       const today = new Date();
       item.invoiceDate = `${today.getDate()}/${today.getMonth() + 1}/${today.getFullYear()}`;
+      item.invoice_date = item.invoiceDate;
     } else {
       item.invoiceStatus = 'Chưa xuất hóa đơn';
+      item.invoice_status = 'Chưa xuất hóa đơn';
       item.invoiceDate = '';
+      item.invoice_date = '';
     }
 
     setItems(updatedItems);
     if (item.id) {
-      await supabase.from('inventory').update({
-        invoiceStatus: item.invoiceStatus,
-        invoiceDate: item.invoiceDate
+      await supabase.from('inventory_import').update({
+        invoice_status: item.invoice_status || item.invoiceStatus,
+        invoice_date: item.invoice_date || item.invoiceDate
       }).eq('id', item.id);
     }
   };
@@ -121,12 +126,18 @@
   const toggleDeliveryStatus = async (index) => {
     const updatedItems = [...items];
     const item = updatedItems[index];
-    item.deliveryStatus = item.deliveryStatus === 'Đã giao' ? 'Chưa giao' : 'Đã giao';
+    
+    // Đảo ngược trạng thái
+    const currentStatus = item.delivery_status !== undefined ? item.delivery_status : (item.deliveryStatus === 'Đã giao');
+    const newStatus = !currentStatus;
+
+    item.delivery_status = newStatus;
+    item.deliveryStatus = newStatus ? 'Đã giao' : 'Chưa giao';
     
     setItems(updatedItems);
     if (item.id) {
-      await supabase.from('inventory').update({
-        deliveryStatus: item.deliveryStatus
+      await supabase.from('inventory_import').update({
+        delivery_status: newStatus
       }).eq('id', item.id);
     }
   };
@@ -135,16 +146,22 @@
   const handleAddManual = async (e) => {
     e.preventDefault();
     const newItem = {
-      ...formData,
-      deliveryStatus: 'Chưa giao',
-      invoiceDate: formData.invoiceStatus === 'Đã xuất hóa đơn' ? formData.invoiceDate : ''
+      import_date: formData.importDate,
+      product_code: formData.productCode,
+      product_name: formData.productName,
+      quantity: formData.quantity,
+      import_declaration_no: formData.customsDeclarationNo,
+      export_unit: formData.exportUnit,
+      delivery_status: false,
+      invoice_status: formData.invoiceStatus,
+      invoice_date: formData.invoiceStatus === 'Đã xuất hóa đơn' ? formData.invoiceDate : ''
     };
 
-    const { error } = await supabase.from('inventory').insert([newItem]);
+    const { error } = await supabase.from('inventory_import').insert([newItem]);
     if (error) {
       alert('Lỗi khi thêm mới: ' + error.message);
     } else {
-      await fetchInventory(); // Load lại từ DB
+      await fetchInventory(); // Load lại dữ liệu thực tế từ DB
       setShowModal(false);
       setFormData({
         importDate: new Date().toLocaleDateString('vi-VN'),
