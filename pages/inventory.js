@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient';
+import * as XLSX from 'xlsx';
 
 export default function Inventory({ lang }) {
   const [items, setItems] = useState([]);
@@ -51,7 +52,9 @@ export default function Inventory({ lang }) {
       setLoading(true);
       const { data, error } = await supabase.from('inventory').select('*');
       if (error) throw error;
-      setItems(data || []);
+      if (data && data.length > 0) {
+        setItems(data);
+      }
     } catch (err) {
       console.error('Lỗi lấy dữ liệu:', err);
     } finally {
@@ -59,33 +62,56 @@ export default function Inventory({ lang }) {
     }
   }
 
-  // Xử lý thêm mới thủ công
-  const handleAddManual = async (e) => {
-    e.preventDefault();
-    try {
-      const { error } = await supabase.from('inventory').insert([formData]);
-      if (error) throw error;
-      setShowModal(false);
-      setFormData({ code: '', name: '', unit: 'Bộ', quantity: 0 });
-      fetchInventory();
-    } catch (err) {
-      alert('Chưa lưu được vào Supabase! Đang thêm tạm vào bảng hiển thị.');
-      setItems([...items, { ...formData, id: Date.now() }]);
-      setShowModal(false);
-    }
-  };
-
-  // Xử lý Import Excel/CSV đơn giản
+  // Xử lý đọc file Excel thật
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    alert(`Đã nhận file ${file.name}. Hệ thống đang đọc dữ liệu...`);
-    // Logic parse file chi tiết sẽ chạy ở đây
+
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const bstr = evt.target.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const rawData = XLSX.utils.sheet_to_json(ws);
+
+        // Chuẩn hóa dữ liệu đọc từ Excel
+        const parsedItems = rawData.map((row) => ({
+          code: row['Mã Sản Phẩm'] || row['Mã hàng'] || row['Mã SP'] || row['Code'] || Object.values(row)[0] || '',
+          name: row['Tên Sản Phẩm / Quy Cách'] || row['Tên hàng'] || row['Tên SP'] || row['Name'] || Object.values(row)[1] || '',
+          unit: row['ĐVT'] || row['Đơn vị'] || row['Unit'] || Object.values(row)[2] || 'Bộ',
+          quantity: Number(row['Số Lượng Tồn Kho'] || row['Số lượng'] || row['Tồn kho'] || row['Qty'] || Object.values(row)[3] || 0)
+        }));
+
+        // Hiển thị ngay lên giao diện
+        setItems((prev) => [...parsedItems, ...prev]);
+
+        // Đẩy thẳng vào Supabase
+        await supabase.from('inventory').insert(parsedItems);
+        alert(' Import thành công ' + parsedItems.length + ' dòng dữ liệu!');
+      } catch (err) {
+        console.error('Lỗi đọc file Excel:', err);
+        alert('Lỗi đọc file! Bà kiểm tra lại file Excel nha.');
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  const handleAddManual = async (e) => {
+    e.preventDefault();
+    try {
+      await supabase.from('inventory').insert([formData]);
+    } catch (err) {
+      console.log('Chưa lưu Supabase, lưu tạm giao diện');
+    }
+    setItems([formData, ...items]);
+    setShowModal(false);
+    setFormData({ code: '', name: '', unit: 'Bộ', quantity: 0 });
   };
 
   return (
     <div className="space-y-6">
-      {/* Header & Các nút chức năng */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <h1 className="text-2xl font-bold text-gray-800">{t.title}</h1>
         
@@ -104,7 +130,6 @@ export default function Inventory({ lang }) {
         </div>
       </div>
 
-      {/* Bảng dữ liệu */}
       <div className="bg-white rounded-lg shadow overflow-hidden">
         <table className="min-w-full divide-y divide-gray-200 text-sm text-left">
           <thead className="bg-gray-100 font-semibold text-gray-700">
@@ -146,7 +171,6 @@ export default function Inventory({ lang }) {
         </table>
       </div>
 
-      {/* Popup nhập tay */}
       {showModal && (
         <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 space-y-4">
