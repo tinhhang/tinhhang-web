@@ -5,7 +5,7 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 export const config = {
   api: {
     bodyParser: {
-      sizeLimit: '10mb', // Cho phép nhận file dung lượng lớn
+      sizeLimit: '10mb',
     },
   },
 };
@@ -19,11 +19,24 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "Không nhận được dữ liệu file PDF" });
     }
 
-    // Sử dụng model gemini-1.5-flash để đọc hiểu tài liệu cực tốt
     const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
     const result = await model.generateContent([
-      "Trích xuất thông tin đơn hàng từ PDF này thành JSON chính xác các trường: ma_don_hang, ngay_xuong_don, ma_khach_hang, items (gồm mảng các sản phẩm với: ma_hang, ten_san_pham, quy_cach, so_luong, chat_lieu). Trả về JSON thuần, tuyệt đối không bọc trong markdown.",
+      `Bạn là một chuyên gia bóc tách dữ liệu đơn hàng tiếng Trung/Việt. Hãy đọc file PDF đơn hàng này và trích xuất chính xác thành một đối tượng JSON thuần duy nhất (không bọc trong markdown hay \`\`\`json) theo cấu trúc sau:
+      {
+        "ma_don_hang": "Chuỗi mã đơn hàng, ví dụ lấy từ mục 单据编号",
+        "ngay_xuong_don": "Ngày tháng định dạng YYYY-MM-DD",
+        "ma_khach_hang": "Tên khách hàng hoặc mã khách hàng ở cột cuối cùng",
+        "items": [
+          {
+            "ma_hang": "Mã hàng hoặc tên sản phẩm",
+            "ten_san_pham": "Sản phẩm",
+            "quy_cach": "Quy cách / 机台型号规格",
+            "so_luong": "Số lượng kèm đơn vị (ví dụ: 2支)",
+            "chat_lieu": "Chất liệu / 材质/涂层要求"
+          }
+        ]
+      }`,
       {
         inlineData: {
           mimeType: 'application/pdf',
