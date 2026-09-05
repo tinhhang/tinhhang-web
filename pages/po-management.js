@@ -38,54 +38,52 @@ export default function PoManagement() {
 
   // Hàm gọi AI bóc tách file PDF từ Supabase URL qua Base64
   const handleParsePdfFromUrl = async (pdfUrl) => {
-    if (!pdfUrl) {
-      alert("Vui lòng cung cấp đường dẫn file PDF hợp lệ!");
-      return;
-    }
+  if (!pdfUrl) {
+    alert("Vui lòng nhập link PDF!");
+    return;
+  }
 
-    setLoading(true);
-    try {
-      // 1. Tải file từ Supabase URL về trình duyệt
-      const response = await fetch(pdfUrl);
-      if (!response.ok) throw new Error("Không thể tải file PDF từ kho lưu trữ.");
-      const blob = await response.blob();
+  setLoading(true);
+  try {
+    const response = await fetch(pdfUrl);
+    if (!response.ok) throw new Error("Không tải được file từ URL cung cấp");
+    const blob = await response.blob();
 
-      // 2. Chuyển blob thành chuỗi Base64
-      const base64Pdf = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          const base64String = reader.result.split(',')[1];
-          resolve(base64String);
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-      });
+    const base64Pdf = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const parts = reader.result.split(',');
+        resolve(parts.length > 1 ? parts[1] : parts[0]);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
 
-      // 3. Gửi Base64 lên API xử lý AI
+    // Gửi đúng key "base64Pdf" lên API
     const res = await fetch('/api/parse-pdf', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ base64Pdf: base64String }) // Bắt buộc phải đúng tên là base64Pdf
-});
-      const result = await res.json();
-      if (!res.ok) throw new Error(result.error || "Lỗi từ server AI");
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ base64Pdf })
+    });
 
-      // 4. Đổ dữ liệu AI bóc tách được vào form
-      setFormData({
-        ma_don_hang: result.ma_don_hang || '',
-        ngay_xuong_don: result.ngay_xuong_don || '',
-        ma_khach_hang: result.ma_khach_hang || '',
-        items: result.items && result.items.length > 0 ? result.items : formData.items
-      });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || "Lỗi server");
 
-      alert("Bóc tách đơn hàng thành công!");
-    } catch (err) {
-      console.error(err);
-      alert("AI không đọc được dữ liệu cấu trúc bảng, bà nhập thủ công giúp tôi nhé! Lỗi: " + err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
+    setFormData({
+      ma_don_hang: result.ma_don_hang || '',
+      ngay_xuong_don: result.ngay_xuong_don || '',
+      ma_khach_hang: result.ma_khach_hang || '',
+      items: result.items && result.items.length > 0 ? result.items : formData.items
+    });
+
+    alert("Đọc đơn hàng thành công!");
+  } catch (err) {
+    console.error("Lỗi client:", err);
+    alert("Lỗi: " + err.message);
+  } finally {
+    setLoading(false);
+  }
+};
 
   return (
     <div style={{ padding: '24px', fontFamily: 'Arial, sans-serif', maxWidth: '1200px', margin: '0 auto' }}>
