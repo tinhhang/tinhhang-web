@@ -1,6 +1,6 @@
-import { GoogleGenAI } from '@google/genai';
+import OpenAI from 'openai';
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 export const config = {
   api: {
@@ -211,31 +211,30 @@ Cấu trúc bắt buộc:
 `;
 
     // ========================================
-    // GỌI GEMINI QUA SDK MỚI @google/genai
+    // GỌI OPENAI - GỬI FILE PDF DẠNG BASE64
     // ========================================
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: [
+    const response = await client.responses.create({
+      model: 'gpt-4o',
+      input: [
         {
           role: 'user',
-          parts: [
-            { text: prompt },
+          content: [
             {
-              inlineData: {
-                mimeType: 'application/pdf',
-                data: cleanBase64,
-              },
+              type: 'input_file',
+              filename: 'don-hang.pdf',
+              file_data: `data:application/pdf;base64,${cleanBase64}`,
+            },
+            {
+              type: 'input_text',
+              text: prompt,
             },
           ],
         },
       ],
-      config: {
-        responseMimeType: 'application/json',
-      },
     });
 
-    const responseText = response.text;
+    const responseText = response.output_text;
 
     console.log('Raw AI response:', responseText);
 
