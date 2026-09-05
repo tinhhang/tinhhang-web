@@ -21,22 +21,22 @@ export default async function handler(req, res) {
 
     const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
-    const prompt = `Đọc tài liệu đơn hàng tiếng Trung/Việt này. Hãy trích xuất dữ liệu thành một cấu trúc JSON chính xác tuyệt đối theo định dạng sau, không kèm bất kỳ markdown nào:
+   const prompt = `Bạn là hệ thống AI chuyên đọc đơn hàng tiếng Trung/Việt. Hãy trích xuất dữ liệu từ tệp PDF này thành MỘT ĐỐI TƯỢNG JSON THUẦN TÚY duy nhất (tuyệt đối không dùng markdown hay \`\`\`json), bóc tách chuẩn xác theo cấu trúc sau:
 {
-  "ma_don_hang": "...",
-  "ngay_xuong_don": "...",
-  "ma_khach_hang": "...",
+  "ma_don_hang": "Lấy giá trị sau 单据编号, ví dụ: YN2026090402A",
+  "ngay_xuong_don": "Lấy từ cột 日期, định dạng YYYY-MM-DD",
+  "ma_khach_hang": "Lấy từ cột 客户, ví dụ: 龙生",
   "items": [
     {
-      "ma_hang": "...",
-      "ten_san_pham": "...",
-      "quy_cach": "...",
-      "so_luong": "...",
-      "chat_lieu": "..."
+      "ma_hang": "Tên sản phẩm hoặc mã tương ứng từ cột 产品名称",
+      "ten_san_pham": "Sản phẩm từ cột 产品名称",
+      "quy_cach": "Thông số từ cột 机台型号规格",
+      "so_luong": "Số lượng từ cột 数量, ví dụ: 1套",
+      "chat_lieu": "Yêu cầu từ cột 材质/涂层要求",
+      "ghi_chu": "Thông tin từ cột 备注 (nếu có)"
     }
   ]
 }`;
-
     const result = await model.generateContent([
       prompt,
       {
