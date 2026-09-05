@@ -12,78 +12,70 @@ export default function PoManagement() {
     ]
   });
 
-  // Xử lý thêm dòng sản phẩm
   const handleAddItem = () => {
     setFormData({
       ...formData,
-      items: [
-        ...formData.items,
-        { ma_hang: '', ten_san_pham: '', quy_cach: '', so_luong: '', chat_lieu: '' }
-      ]
+      items: [...formData.items, { ma_hang: '', ten_san_pham: '', quy_cach: '', so_luong: '', chat_lieu: '' }]
     });
   };
 
-  // Xử lý xóa dòng sản phẩm
   const handleRemoveItem = (index) => {
     const newItems = formData.items.filter((_, i) => i !== index);
     setFormData({ ...formData, items: newItems });
   };
 
-  // Cập nhật giá trị từng dòng
   const handleItemChange = (index, field, value) => {
     const newItems = [...formData.items];
     newItems[index][field] = value;
     setFormData({ ...formData, items: newItems });
   };
 
-  // Hàm gọi AI bóc tách file PDF từ Supabase URL qua Base64
-  const handleParsePdfFromUrl = async (pdfUrl) => {
-  if (!pdfUrl) {
-    alert("Vui lòng nhập link PDF!");
-    return;
-  }
+  // Hàm chọn file trực tiếp từ máy và gửi lên API
+  const handleFileUpload = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
 
-  setLoading(true);
-  try {
-    const response = await fetch(pdfUrl);
-    if (!response.ok) throw new Error("Không tải được file từ URL cung cấp");
-    const blob = await response.blob();
+    setLoading(true);
+    try {
+      // 1. Chuyển file từ máy sang chuỗi Base64
+      const base64Pdf = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const parts = reader.result.split(',');
+          resolve(parts.length > 1 ? parts[1] : parts[0]);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
 
-    const base64Pdf = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const parts = reader.result.split(',');
-        resolve(parts.length > 1 ? parts[1] : parts[0]);
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(blob);
-    });
+      // 2. Gửi Base64 lên API AI xử lý
+      const res = await fetch('/api/parse-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ base64Pdf })
+      });
 
-    // Gửi đúng key "base64Pdf" lên API
-    const res = await fetch('/api/parse-pdf', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ base64Pdf })
-    });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || "Lỗi xử lý từ server");
 
-    const result = await res.json();
-    if (!res.ok) throw new Error(result.error || "Lỗi server");
+      // 3. Đổ dữ liệu vào form
+      setFormData({
+        ma_don_hang: result.ma_don_hang || '',
+        ngay_xuong_don: result.ngay_xuong_don || '',
+        ma_khach_hang: result.ma_khach_hang || '',
+        items: result.items && result.items.length > 0 ? result.items : formData.items
+      });
 
-    setFormData({
-      ma_don_hang: result.ma_don_hang || '',
-      ngay_xuong_don: result.ngay_xuong_don || '',
-      ma_khach_hang: result.ma_khach_hang || '',
-      items: result.items && result.items.length > 0 ? result.items : formData.items
-    });
-
-    alert("Đọc đơn hàng thành công!");
-  } catch (err) {
-    console.error("Lỗi client:", err);
-    alert("Lỗi: " + err.message);
-  } finally {
-    setLoading(false);
-  }
-};
+      alert("AI đã bóc tách đơn hàng thành công!");
+    } catch (err) {
+      console.error(err);
+      alert("Lỗi đọc file PDF: " + err.message);
+    } finally {
+      setLoading(false);
+      // Reset input file để có thể chọn lại cùng 1 file nếu cần
+      event.target.value = null;
+    }
+  };
 
   return (
     <div style={{ padding: '24px', fontFamily: 'Arial, sans-serif', maxWidth: '1200px', margin: '0 auto' }}>
@@ -93,27 +85,17 @@ export default function PoManagement() {
 
       <h1 style={{ color: '#333', fontSize: '24px', marginBottom: '20px' }}>Quản lý Đơn hàng & Bóc tách PDF</h1>
 
-      {/* Khu vực test nhập URL để gọi AI */}
+      {/* Khu vực chọn file trực tiếp từ máy */}
       <div style={{ marginBottom: '20px', padding: '15px', background: '#f9f9f9', borderRadius: '8px', border: '1px solid #ddd' }}>
-        <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '8px' }}>Đường dẫn file PDF đơn hàng (Supabase URL):</label>
-        <div style={{ display: 'flex', gap: '10px' }}>
-          <input 
-            type="text" 
-            id="pdfUrlInput" 
-            placeholder="Dán link file PDF từ Supabase vào đây..." 
-            style={{ flex: 1, padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }}
-          />
-          <button 
-            onClick={() => {
-              const url = document.getElementById('pdfUrlInput').value;
-              handleParsePdfFromUrl(url);
-            }}
-            disabled={loading}
-            style={{ padding: '8px 16px', background: '#6b21a8', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
-          >
-            {loading ? '⏳ AI đang bóc tách...' : '✨ Đọc PDF bằng AI'}
-          </button>
-        </div>
+        <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '8px' }}>Chọn file PDF đơn hàng từ máy tính:</label>
+        <input 
+          type="file" 
+          accept="application/pdf"
+          onChange={handleFileUpload}
+          disabled={loading}
+          style={{ padding: '8px', background: '#fff', border: '1px solid #ccc', borderRadius: '4px', width: '100%' }}
+        />
+        {loading && <p style={{ color: '#7c3aed', marginTop: '8px', fontWeight: 'bold' }}>⏳ AI đang đọc bảng đơn hàng, vui lòng đợi chút...</p>}
       </div>
 
       {/* Form thông tin chính */}
@@ -147,7 +129,7 @@ export default function PoManagement() {
         </div>
       </div>
 
-      {/* Bảng chi tiết sản phẩm (nhiều dòng) */}
+      {/* Bảng chi tiết sản phẩm */}
       <h3 style={{ fontSize: '18px', marginTop: '30px', marginBottom: '10px' }}>Chi tiết danh sách hàng</h3>
       <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '15px' }}>
         <thead>
