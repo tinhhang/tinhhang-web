@@ -1,6 +1,6 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenAI } from '@google/genai';
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 export const config = {
   api: {
@@ -21,7 +21,6 @@ export default async function handler(req, res) {
     let cleanBase64;
 
     if (pdfUrl && typeof pdfUrl === 'string') {
-      // Trường hợp trang /production: nhận URL, tự tải file về server rồi convert base64
       const pdfRes = await fetch(pdfUrl);
 
       if (!pdfRes.ok) {
@@ -42,10 +41,6 @@ export default async function handler(req, res) {
         error: 'Thiếu dữ liệu PDF (cần pdfUrl hoặc base64Pdf).',
       });
     }
-
-    const model = genAI.getGenerativeModel({
-      model: 'gemini-1.5-flash',
-    });
 
     const prompt = `
 Bạn là hệ thống AI chuyên đọc đơn đặt hàng (PO) bằng tiếng Trung hoặc tiếng Việt từ file PDF.
@@ -215,17 +210,32 @@ Cấu trúc bắt buộc:
 }
 `;
 
-    const result = await model.generateContent([
-      prompt,
-      {
-        inlineData: {
-          mimeType: 'application/pdf',
-          data: cleanBase64,
-        },
-      },
-    ]);
+    // ========================================
+    // GỌI GEMINI QUA SDK MỚI @google/genai
+    // ========================================
 
-    const responseText = result.response.text();
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            { text: prompt },
+            {
+              inlineData: {
+                mimeType: 'application/pdf',
+                data: cleanBase64,
+              },
+            },
+          ],
+        },
+      ],
+      config: {
+        responseMimeType: 'application/json',
+      },
+    });
+
+    const responseText = response.text;
 
     console.log('Raw AI response:', responseText);
 
@@ -281,7 +291,6 @@ Cấu trúc bắt buộc:
 
     console.log('Parsed PDF data:', JSON.stringify(finalData, null, 2));
 
-    // Bọc theo { success, data } để khớp với handleAutoParseAi ở pages/production.js
     return res.status(200).json({
       success: true,
       data: finalData,
