@@ -5,16 +5,20 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 export const config = {
   api: {
     bodyParser: {
-      sizeLimit: '15mb',
+      sizeLimit: '20mb',
     },
   },
 };
 
 export default async function handler(req, res) {
-  if (req.method !== 'POST') return res.status(405).json({ error: "Method not allowed" });
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: "Method not allowed" });
+  }
 
   try {
-    const { base64Pdf } = req.body;
+    // Hứng linh hoạt các tên biến từ client gửi lên để tránh lỗi 400 thiếu dữ liệu
+    const base64Pdf = req.body?.base64Pdf || req.body?.file || req.body?.pdf;
+    
     if (!base64Pdf) {
       return res.status(400).json({ error: "Thiếu dữ liệu base64Pdf" });
     }
