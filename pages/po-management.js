@@ -141,6 +141,9 @@ export default function PoManagement() {
       // ========================================
       // BƯỚC 2: GỬI PDF ĐẾN API
       // ========================================
+const requestBody = JSON.stringify({ base64Pdf: base64Pdf });
+
+console.log('🔥 FINGERPRINT-' + Date.now(), 'Body sắp gửi:', requestBody.substring(0, 100));
 
     const res = await fetch('/api/parse-pdf', {
   method: 'POST',
