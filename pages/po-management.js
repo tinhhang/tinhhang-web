@@ -47,10 +47,10 @@ export default function PoManagement() {
         reader.readAsDataURL(file);
       });
 
-      const res = await fetch('/api/parse-pdf', {
+const res = await fetch('/api/parse-pdf', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ base64Pdf })
+        body: JSON.stringify({ pdfData: base64Pdf }) // Đổi tên để ép Vercel nhận diện code mới hoàn toàn
       });
 
       const data = await res.json();
