@@ -62,12 +62,11 @@ export default function PoManagement() {
       });
 
       // 3. Gửi Base64 lên API xử lý AI
-      const res = await fetch('/api/parse-pdf', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ base64Pdf })
-      });
-
+    const res = await fetch('/api/parse-pdf', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ base64Pdf: base64String }) // Bắt buộc phải đúng tên là base64Pdf
+});
       const result = await res.json();
       if (!res.ok) throw new Error(result.error || "Lỗi từ server AI");
 
