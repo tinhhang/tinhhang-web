@@ -1,285 +1,36 @@
-import { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabaseClient';
+const handleParsePdf = async (pdfUrl) => {
+  try {
+    // 1. Tải file PDF từ URL Supabase về trình duyệt trước
+    const response = await fetch(pdfUrl);
+    const blob = await response.blob();
 
-export default function POManagement() {
-  const [poList, setPoList] = useState([]);
-  const [customers, setCustomers] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [showModal, setShowModal] = useState(false);
-  
-  const [customerSearch, setCustomerSearch] = useState('');
-  const [showDropdown, setShowDropdown] = useState(false);
+    // 2. Chuyển blob thành chuỗi Base64
+    const base64Pdf = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        // Cắt bỏ phần header metadata của dataURL (ví dụ: "data:application/pdf;base64,")
+        const base64String = reader.result.split(',')[1];
+        resolve(base64String);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
 
-  const [formData, setFormData] = useState({
-    po_number: '',
-    customer_code: '',
-    product_name: '',
-    product_code: '',
-    quantity: 1,
-    unit_price: 0,
-    po_date: new Date().toISOString().split('T')[0]
-  });
-  
-  const [poFile, setPoFile] = useState(null);
+    // 3. Gửi cục Base64 đó lên API của chúng ta
+    const res = await fetch('/api/parse-pdf', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ base64Pdf })
+    });
 
-  const formatDateForDisplay = (val) => {
-    if (!val) return '';
-    const d = new Date(val);
-    if (isNaN(d.getTime())) return String(val);
-    const day = String(d.getDate()).padStart(2, '0');
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const year = d.getFullYear();
-    return `${day}/${month}/${year}`;
-  };
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || "Lỗi server");
 
-  const fetchData = async () => {
-    setLoading(true);
-    
-    const { data: poData, error: poError } = await supabase
-      .from('po_list')
-      .select('*')
-      .order('id', { ascending: false });
+    console.log("Đọc PDF thành công:", result);
+    // Đưa dữ liệu trích xuất được vào form giao diện của bà ở đây
+    // Ví dụ: setFormData(result);
 
-    if (poError) console.error('Lỗi tải PO:', poError.message);
-    else if (poData) setPoList(poData);
-
-    const { data: cusData, error: cusError } = await supabase.from('customers').select('*');
-    if (cusError) {
-      console.error('Lỗi tải khách hàng:', cusError.message);
-    } else if (cusData) {
-      setCustomers(cusData);
-    }
-
-    setLoading(false);
-  };
-
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  const handleAddPO = async (e) => {
-    e.preventDefault();
-    
-    if (!formData.customer_code) {
-      alert('Vui lòng chọn mã khách hàng từ danh sách gợi ý!');
-      return;
-    }
-
-    let fileUrl = '';
-    if (poFile) {
-      const fileName = `${Date.now()}_${poFile.name}`;
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('po_files')
-        .upload(fileName, poFile);
-
-      if (uploadError) {
-        alert('Lỗi tải lên file PO: ' + uploadError.message + '\n(Hãy chắc chắn đã tạo Bucket "po_files" trên Supabase)');
-        return;
-      }
-      
-      const { data: urlData } = supabase.storage.from('po_files').getPublicUrl(fileName);
-      fileUrl = urlData.publicUrl;
-    }
-
-    const newRow = {
-      po_number: formData.po_number,
-      customer_code: formData.customer_code,
-      product_name: formData.product_name,
-      product_code: formData.product_code,
-      quantity: Number(formData.quantity),
-      unit_price: Number(formData.unit_price),
-      po_date: formData.po_date || null,
-      file_url: fileUrl || null
-    };
-
-    const { error } = await supabase.from('po_list').insert([newRow]);
-
-    if (error) {
-      alert('Lỗi khi thêm PO: ' + error.message);
-    } else {
-      alert('Thêm dòng PO thành công!');
-      setShowModal(false);
-      setFormData({
-        po_number: '',
-        customer_code: '',
-        product_name: '',
-        product_code: '',
-        quantity: 1,
-        unit_price: 0,
-        po_date: new Date().toISOString().split('T')[0]
-      });
-      setCustomerSearch('');
-      setPoFile(null);
-      await fetchData();
-    }
-  };
-
-  const filteredCustomers = customers.filter(c => {
-    const code = String(c.customer_code || c.code || c.id || '').toLowerCase();
-    const name = String(c.customer_name || c.name || '').toLowerCase();
-    const keyword = customerSearch.toLowerCase();
-    return code.includes(keyword) || name.includes(keyword);
-  });
-
-  return (
-    <div style={{ padding: '20px', fontFamily: 'sans-serif' }}>
-      <h1>Quản lý PO (po_list)</h1>
-
-      <div style={{ marginBottom: '20px', display: 'flex', gap: '10px' }}>
-        <button 
-          onClick={() => setShowModal(true)}
-          style={{ padding: '8px 16px', cursor: 'pointer', background: '#0070f3', color: '#fff', border: 'none', borderRadius: '4px' }}
-        >
-          + Thêm dòng PO mới
-        </button>
-        <a href="/customers" style={{ padding: '8px 16px', background: '#e2e8f0', color: '#333', textDecoration: 'none', borderRadius: '4px' }}>
-          Quản lý Danh sách Khách hàng
-        </a>
-      </div>
-
-      {loading && <p>Đang tải dữ liệu...</p>}
-
-      <table border="1" cellPadding="8" cellSpacing="0" style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <thead>
-          <tr style={{ background: '#f2f2f2' }}>
-            <th>STT</th>
-            <th>Số PO</th>
-            <th>Mã Khách hàng</th>
-            <th>Tên sản phẩm</th>
-            <th>Mã sản phẩm</th>
-            <th>Số lượng</th>
-            <th>Đơn giá</th>
-            <th>Ngày PO</th>
-          </tr>
-        </thead>
-        <tbody>
-          {poList.length === 0 && !loading ? (
-            <tr>
-              <td colSpan="8" style={{ textAlign: 'center' }}>Chưa có dữ liệu PO nào</td>
-            </tr>
-          ) : (
-            poList.map((po, index) => (
-              <tr key={po.id || index}>
-                <td>{index + 1}</td>
-                <td><strong>{po.po_number}</strong></td>
-                <td>{po.customer_code}</td>
-                <td>{po.product_name}</td>
-                <td>{po.product_code}</td>
-                <td>{po.quantity}</td>
-                <td>{po.unit_price ? po.unit_price.toLocaleString('vi-VN') : 0}</td>
-                <td>{formatDateForDisplay(po.po_date)}</td>
-              </tr>
-            ))
-          )}
-        </tbody>
-      </table>
-
-      {showModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: '#fff', padding: '20px', borderRadius: '8px', width: '500px', maxHeight: '90vh', overflowY: 'auto' }}>
-            <h2>Thêm dòng PO & Tải file gốc</h2>
-            <form onSubmit={handleAddPO}>
-              <div style={{ marginBottom: '10px' }}>
-                <label>Số PO: </label>
-                <input type="text" value={formData.po_number} onChange={e => setFormData({...formData, po_number: e.target.value})} required style={{ width: '100%', padding: '6px' }} />
-              </div>
-
-              {/* Phần tìm kiếm và chọn khách hàng dạng dropdown tùy biến mượt mà */}
-              <div style={{ marginBottom: '10px', position: 'relative' }}>
-                <label>Khách hàng (Gõ tên/mã để chọn): </label>
-                <input 
-                  type="text" 
-                  placeholder="🔍 Gõ từ khóa tìm kiếm khách hàng..." 
-                  value={customerSearch}
-                  onChange={e => {
-                    setCustomerSearch(e.target.value);
-                    setShowDropdown(true);
-                  }}
-                  onFocus={() => setShowDropdown(true)}
-                  style={{ width: '100%', padding: '6px', border: '1px solid #ccc', borderRadius: '4px' }}
-                />
-                
-                {showDropdown && (
-                  <ul style={{ 
-                    position: 'absolute', 
-                    top: '100%', 
-                    left: 0, 
-                    right: 0, 
-                    maxHeight: '160px', 
-                    overflowY: 'auto', 
-                    background: '#fff', 
-                    border: '1px solid #ccc', 
-                    listStyle: 'none', 
-                    padding: 0, 
-                    margin: 0, 
-                    zIndex: 1000,
-                    boxShadow: '0 4px 6px rgba(0,0,0,0.1)'
-                  }}>
-                    {filteredCustomers.length === 0 ? (
-                      <li style={{ padding: '8px', color: '#888' }}>Không tìm thấy khách hàng phù hợp</li>
-                    ) : (
-                      filteredCustomers.map((c, idx) => {
-                        const code = c.customer_code || c.code || c.id;
-                        const name = c.customer_name || c.name;
-                        return (
-                          <li 
-                            key={idx} 
-                            onClick={() => {
-                              setFormData({...formData, customer_code: code});
-                              setCustomerSearch(`${code} - ${name}`);
-                              setShowDropdown(false);
-                            }}
-                            style={{ padding: '8px', cursor: 'pointer', borderBottom: '1px solid #eee' }}
-                            onMouseOver={(e) => e.target.style.background = '#f0f0f0'}
-                            onMouseOut={(e) => e.target.style.background = '#fff'}
-                          >
-                            <strong>{code}</strong> - {name}
-                          </li>
-                        );
-                      })
-                    )}
-                  </ul>
-                )}
-                
-                <div style={{ marginTop: '4px', fontSize: '13px', color: '#0070f3' }}>
-                  ✓ Đã chọn mã: <strong>{formData.customer_code || 'Chưa chọn'}</strong>
-                </div>
-              </div>
-
-              <div style={{ marginBottom: '10px' }}>
-                <label>Tên sản phẩm: </label>
-                <input type="text" value={formData.product_name} onChange={e => setFormData({...formData, product_name: e.target.value})} required style={{ width: '100%', padding: '6px' }} />
-              </div>
-              <div style={{ marginBottom: '10px' }}>
-                <label>Mã sản phẩm: </label>
-                <input type="text" value={formData.product_code} onChange={e => setFormData({...formData, product_code: e.target.value})} style={{ width: '100%', padding: '6px' }} />
-              </div>
-              <div style={{ marginBottom: '10px' }}>
-                <label>Số lượng: </label>
-                <input type="number" value={formData.quantity} onChange={e => setFormData({...formData, quantity: e.target.value})} required style={{ width: '100%', padding: '6px' }} />
-              </div>
-              <div style={{ marginBottom: '10px' }}>
-                <label>Đơn giá: </label>
-                <input type="number" value={formData.unit_price} onChange={e => setFormData({...formData, unit_price: e.target.value})} style={{ width: '100%', padding: '6px' }} />
-              </div>
-              <div style={{ marginBottom: '10px' }}>
-                <label>Ngày PO: </label>
-                <input type="date" value={formData.po_date} onChange={e => setFormData({...formData, po_date: e.target.value})} style={{ width: '100%', padding: '6px' }} />
-              </div>
-
-              <div style={{ marginBottom: '10px', background: '#f9f9f9', padding: '8px', border: '1px dashed #ccc' }}>
-                <label><strong>Tải file PO gốc (PDF / Ảnh) - Tùy chọn:</strong> </label>
-                <input type="file" accept=".pdf,image/*" onChange={e => setPoFile(e.target.files[0])} style={{ width: '100%', marginTop: '5px' }} />
-              </div>
-
-              <div style={{ marginTop: '15px', display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-                <button type="submit" style={{ padding: '8px 16px', background: '#0070f3', color: '#fff', border: 'none', borderRadius: '4px' }}>Lưu</button>
-                <button type="button" onClick={() => setShowModal(false)} style={{ padding: '8px 16px' }}>Hủy</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
+  } catch (err) {
+    alert("Không đọc được PDF: " + err.message);
+  }
+};
