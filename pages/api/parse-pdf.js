@@ -12,32 +12,36 @@ export const config = {
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    return res.status(405).json({
-      error: 'Method not allowed',
-    });
+    return res.status(405).json({ error: 'Method not allowed' });
   }
 
   try {
-    console.log('Request body keys:', Object.keys(req.body || {}));
+    const { pdfUrl, base64Pdf: rawBase64 } = req.body || {};
 
-    const base64Pdf =
-      req.body?.base64Pdf ||
-      req.body?.pdfData ||
-      req.body?.file ||
-      req.body?.pdf;
+    let cleanBase64;
 
-    if (!base64Pdf || typeof base64Pdf !== 'string') {
+    if (pdfUrl && typeof pdfUrl === 'string') {
+      // Trường hợp trang /production: nhận URL, tự tải file về server rồi convert base64
+      const pdfRes = await fetch(pdfUrl);
+
+      if (!pdfRes.ok) {
+        return res.status(400).json({
+          error: `Không tải được file PDF từ URL (status ${pdfRes.status}).`,
+        });
+      }
+
+      const arrayBuffer = await pdfRes.arrayBuffer();
+      cleanBase64 = Buffer.from(arrayBuffer).toString('base64');
+
+    } else if (rawBase64 && typeof rawBase64 === 'string') {
+      cleanBase64 = rawBase64.includes(',')
+        ? rawBase64.split(',')[1]
+        : rawBase64;
+    } else {
       return res.status(400).json({
-        error: 'Thiếu dữ liệu PDF dạng Base64.',
+        error: 'Thiếu dữ liệu PDF (cần pdfUrl hoặc base64Pdf).',
       });
     }
-
-    // Nếu client gửi dạng:
-    // data:application/pdf;base64,xxxxx
-    // thì chỉ lấy phần Base64 phía sau
-    const cleanBase64 = base64Pdf.includes(',')
-      ? base64Pdf.split(',')[1]
-      : base64Pdf;
 
     const model = genAI.getGenerativeModel({
       model: 'gemini-1.5-flash',
@@ -228,11 +232,8 @@ Cấu trúc bắt buộc:
     let parsedData;
 
     try {
-      // Thử parse trực tiếp trước
       parsedData = JSON.parse(responseText.trim());
     } catch (firstError) {
-      // Nếu model vẫn trả markdown hoặc text thừa,
-      // lấy phần JSON từ dấu { đầu tiên đến } cuối cùng
       const cleanStr = responseText
         .replace(/```json/gi, '')
         .replace(/```/g, '')
@@ -242,28 +243,17 @@ Cấu trúc bắt buộc:
       const lastBrace = cleanStr.lastIndexOf('}');
 
       if (firstBrace === -1 || lastBrace === -1) {
-        throw new Error(
-          'AI không trả về cấu trúc JSON hợp lệ.'
-        );
+        throw new Error('AI không trả về cấu trúc JSON hợp lệ.');
       }
 
       try {
-        parsedData = JSON.parse(
-          cleanStr.substring(firstBrace, lastBrace + 1)
-        );
+        parsedData = JSON.parse(cleanStr.substring(firstBrace, lastBrace + 1));
       } catch (jsonError) {
         console.error('JSON parse error:', jsonError);
         console.error('AI response:', responseText);
-
-        throw new Error(
-          'AI đã trả dữ liệu nhưng không thể chuyển thành JSON.'
-        );
+        throw new Error('AI đã trả dữ liệu nhưng không thể chuyển thành JSON.');
       }
     }
-
-    // ========================
-    // VALIDATE KẾT QUẢ
-    // ========================
 
     if (!parsedData || typeof parsedData !== 'object') {
       throw new Error('Dữ liệu AI trả về không hợp lệ.');
@@ -273,72 +263,35 @@ Cấu trúc bắt buộc:
       parsedData.items = [];
     }
 
-    // Đảm bảo mọi item đều có đủ field
     parsedData.items = parsedData.items.map((item) => ({
-      ma_hang:
-        typeof item?.ma_hang === 'string'
-          ? item.ma_hang.trim()
-          : '',
-
-      ten_san_pham:
-        typeof item?.ten_san_pham === 'string'
-          ? item.ten_san_pham.trim()
-          : '',
-
-      quy_cach:
-        typeof item?.quy_cach === 'string'
-          ? item.quy_cach.trim()
-          : '',
-
-      so_luong:
-        typeof item?.so_luong === 'string'
-          ? item.so_luong.trim()
-          : '',
-
-      chat_lieu:
-        typeof item?.chat_lieu === 'string'
-          ? item.chat_lieu.trim()
-          : '',
-
-      ghi_chu:
-        typeof item?.ghi_chu === 'string'
-          ? item.ghi_chu.trim()
-          : '',
+      ma_hang: typeof item?.ma_hang === 'string' ? item.ma_hang.trim() : '',
+      ten_san_pham: typeof item?.ten_san_pham === 'string' ? item.ten_san_pham.trim() : '',
+      quy_cach: typeof item?.quy_cach === 'string' ? item.quy_cach.trim() : '',
+      so_luong: typeof item?.so_luong === 'string' ? item.so_luong.trim() : '',
+      chat_lieu: typeof item?.chat_lieu === 'string' ? item.chat_lieu.trim() : '',
+      ghi_chu: typeof item?.ghi_chu === 'string' ? item.ghi_chu.trim() : '',
     }));
 
     const finalData = {
-      ma_don_hang:
-        typeof parsedData.ma_don_hang === 'string'
-          ? parsedData.ma_don_hang.trim()
-          : '',
-
-      ngay_xuong_don:
-        typeof parsedData.ngay_xuong_don === 'string'
-          ? parsedData.ngay_xuong_don.trim()
-          : '',
-
-      ma_khach_hang:
-        typeof parsedData.ma_khach_hang === 'string'
-          ? parsedData.ma_khach_hang.trim()
-          : '',
-
+      ma_don_hang: typeof parsedData.ma_don_hang === 'string' ? parsedData.ma_don_hang.trim() : '',
+      ngay_xuong_don: typeof parsedData.ngay_xuong_don === 'string' ? parsedData.ngay_xuong_don.trim() : '',
+      ma_khach_hang: typeof parsedData.ma_khach_hang === 'string' ? parsedData.ma_khach_hang.trim() : '',
       items: parsedData.items,
     };
 
-    console.log(
-      'Parsed PDF data:',
-      JSON.stringify(finalData, null, 2)
-    );
+    console.log('Parsed PDF data:', JSON.stringify(finalData, null, 2));
 
-    return res.status(200).json(finalData);
+    // Bọc theo { success, data } để khớp với handleAutoParseAi ở pages/production.js
+    return res.status(200).json({
+      success: true,
+      data: finalData,
+    });
 
   } catch (error) {
     console.error('Lỗi tại API parse-pdf:', error);
 
     return res.status(500).json({
-      error:
-        error?.message ||
-        'Có lỗi xảy ra khi đọc PDF.',
+      error: error?.message || 'Có lỗi xảy ra khi đọc PDF.',
     });
   }
 }
