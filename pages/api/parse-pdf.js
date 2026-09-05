@@ -15,11 +15,8 @@ export default async function handler(req, res) {
 
   try {
     const { base64Pdf } = req.body;
-    
-    // Nếu không có base64Pdf, báo lỗi rõ ràng để debug
     if (!base64Pdf) {
-      console.error("API nhận request nhưng thiếu base64Pdf trong body:", req.body);
-      return res.status(400).json({ error: "Thiếu dữ liệu base64Pdf trong request body" });
+      return res.status(400).json({ error: "Thiếu dữ liệu base64Pdf" });
     }
 
     const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
@@ -57,14 +54,14 @@ export default async function handler(req, res) {
     const lastBrace = cleanStr.lastIndexOf('}');
 
     if (firstBrace === -1 || lastBrace === -1) {
-      throw new Error("AI không trả về cấu trúc JSON hợp lệ: " + responseText);
+      throw new Error("AI không trả về cấu trúc JSON hợp lệ.");
     }
 
     const parsedData = JSON.parse(cleanStr.substring(firstBrace, lastBrace + 1));
     return res.status(200).json(parsedData);
 
   } catch (error) {
-    console.error('Lỗi chi tiết tại API parse-pdf:', error);
+    console.error('Lỗi tại API parse-pdf:', error);
     return res.status(500).json({ error: error.message });
   }
 }
