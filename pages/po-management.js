@@ -30,8 +30,7 @@ export default function PoManagement() {
     setFormData({ ...formData, items: newItems });
   };
 
-  // Hàm chọn file trực tiếp từ máy và gửi lên API
- const handleFileUpload = async (event) => {
+  const handleFileUpload = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
 
@@ -40,14 +39,13 @@ export default function PoManagement() {
       const base64Pdf = await new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onloadend = () => {
-          const parts = reader.result.split(',');
-          resolve(parts.length > 1 ? parts[1] : parts[0]);
+          const resStr = reader.result;
+          const base64Data = resStr.includes(',') ? resStr.split(',')[1] : resStr;
+          resolve(base64Data);
         };
         reader.onerror = reject;
         reader.readAsDataURL(file);
       });
-
-      console.log("Chuỗi Base64 chuẩn bị gửi lên:", base64Pdf ? base64Pdf.substring(0, 30) + "..." : "Rỗng!");
 
       const res = await fetch('/api/parse-pdf', {
         method: 'POST',
@@ -55,24 +53,14 @@ export default function PoManagement() {
         body: JSON.stringify({ base64Pdf })
       });
 
-      // Lấy toàn bộ nội dung text trả về từ server để đọc lỗi chính xác
-      const responseText = await res.text();
-      console.log("Server phản hồi:", responseText);
-
-      let result;
-      try {
-        result = JSON.parse(responseText);
-      } catch (e) {
-        throw new Error("Server trả về không phải JSON: " + responseText);
-      }
-
-      if (!res.ok) throw new Error(result.error || "Lỗi xử lý từ server");
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Lỗi xử lý từ server");
 
       setFormData({
-        ma_don_hang: result.ma_don_hang || '',
-        ngay_xuong_don: result.ngay_xuong_don || '',
-        ma_khach_hang: result.ma_khach_hang || '',
-        items: result.items && result.items.length > 0 ? result.items : formData.items
+        ma_don_hang: data.ma_don_hang || '',
+        ngay_xuong_don: data.ngay_xuong_don || '',
+        ma_khach_hang: data.ma_khach_hang || '',
+        items: data.items && data.items.length > 0 ? data.items : formData.items
       });
 
       alert("AI đã bóc tách đơn hàng thành công!");
@@ -93,7 +81,6 @@ export default function PoManagement() {
 
       <h1 style={{ color: '#333', fontSize: '24px', marginBottom: '20px' }}>Quản lý Đơn hàng & Bóc tách PDF</h1>
 
-      {/* Khu vực chọn file trực tiếp từ máy */}
       <div style={{ marginBottom: '20px', padding: '15px', background: '#f9f9f9', borderRadius: '8px', border: '1px solid #ddd' }}>
         <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '8px' }}>Chọn file PDF đơn hàng từ máy tính:</label>
         <input 
@@ -106,7 +93,6 @@ export default function PoManagement() {
         {loading && <p style={{ color: '#7c3aed', marginTop: '8px', fontWeight: 'bold' }}>⏳ AI đang đọc bảng đơn hàng, vui lòng đợi chút...</p>}
       </div>
 
-      {/* Form thông tin chính */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '15px', marginBottom: '20px' }}>
         <div>
           <label style={{ display: 'block', fontSize: '14px', marginBottom: '5px' }}>Mã đơn hàng</label>
@@ -137,7 +123,6 @@ export default function PoManagement() {
         </div>
       </div>
 
-      {/* Bảng chi tiết sản phẩm */}
       <h3 style={{ fontSize: '18px', marginTop: '30px', marginBottom: '10px' }}>Chi tiết danh sách hàng</h3>
       <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '15px' }}>
         <thead>
