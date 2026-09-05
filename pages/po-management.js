@@ -41,7 +41,8 @@ export default function PoManagement() {
 
       const res = await fetch('/api/parse-pdf', {
         method: 'POST',
-        body: formDataObj // Không cần set Content-Type, trình duyệt tự lo
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ base64Pdf })
       });
 
       const data = await res.json();
