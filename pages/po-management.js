@@ -142,15 +142,15 @@ export default function PoManagement() {
       // BƯỚC 2: GỬI PDF ĐẾN API
       // ========================================
 
-      const res = await fetch('/api/parse-pdf', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          base64Pdf: base64Pdf
-        })
-      });
+    const res = await fetch('/api/parse-pdf', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    base64Pdf: base64Pdf   // thay vì pdfUrl
+  })
+});
 
       // ========================================
       // BƯỚC 3: ĐỌC KẾT QUẢ API
