@@ -31,13 +31,12 @@ export default function PoManagement() {
   };
 
   // Hàm chọn file trực tiếp từ máy và gửi lên API
-  const handleFileUpload = async (event) => {
+ const handleFileUpload = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
 
     setLoading(true);
     try {
-      // 1. Chuyển file từ máy sang chuỗi Base64
       const base64Pdf = await new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onloadend = () => {
@@ -48,17 +47,27 @@ export default function PoManagement() {
         reader.readAsDataURL(file);
       });
 
-      // 2. Gửi Base64 lên API AI xử lý
+      console.log("Chuỗi Base64 chuẩn bị gửi lên:", base64Pdf ? base64Pdf.substring(0, 30) + "..." : "Rỗng!");
+
       const res = await fetch('/api/parse-pdf', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ base64Pdf })
       });
 
-      const result = await res.json();
+      // Lấy toàn bộ nội dung text trả về từ server để đọc lỗi chính xác
+      const responseText = await res.text();
+      console.log("Server phản hồi:", responseText);
+
+      let result;
+      try {
+        result = JSON.parse(responseText);
+      } catch (e) {
+        throw new Error("Server trả về không phải JSON: " + responseText);
+      }
+
       if (!res.ok) throw new Error(result.error || "Lỗi xử lý từ server");
 
-      // 3. Đổ dữ liệu vào form
       setFormData({
         ma_don_hang: result.ma_don_hang || '',
         ngay_xuong_don: result.ngay_xuong_don || '',
@@ -72,7 +81,6 @@ export default function PoManagement() {
       alert("Lỗi đọc file PDF: " + err.message);
     } finally {
       setLoading(false);
-      // Reset input file để có thể chọn lại cùng 1 file nếu cần
       event.target.value = null;
     }
   };
