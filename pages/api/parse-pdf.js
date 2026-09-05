@@ -16,8 +16,8 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Hứng linh hoạt các tên biến từ client gửi lên để tránh lỗi 400 thiếu dữ liệu
-    const base64Pdf = req.body?.base64Pdf || req.body?.file || req.body?.pdf;
+    // Thử bắt mọi trường hợp tên biến client có thể truyền lên
+    const base64Pdf = req.body?.pdfData || req.body?.base64Pdf || req.body?.file || req.body?.pdf;
     
     if (!base64Pdf) {
       return res.status(400).json({ error: "Thiếu dữ liệu base64Pdf" });
