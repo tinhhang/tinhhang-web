@@ -1,12 +1,12 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import formidable from 'formidable';
+import fs from 'fs';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 export const config = {
   api: {
-    bodyParser: {
-      sizeLimit: '20mb',
-    },
+    bodyParser: false, // Tắt bodyParser mặc định để xử lý file thô chuẩn xác
   },
 };
 
@@ -16,12 +16,23 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Thử bắt mọi trường hợp tên biến client có thể truyền lên
-    const base64Pdf = req.body?.pdfData || req.body?.base64Pdf || req.body?.file || req.body?.pdf;
+    const form = formidable({});
     
-    if (!base64Pdf) {
-      return res.status(400).json({ error: "Thiếu dữ liệu base64Pdf" });
+    const [fields, files] = await new Promise((resolve, reject) => {
+      form.parse(req, (err, fields, files) => {
+        if (err) reject(err);
+        else resolve([fields, files]);
+      });
+    });
+
+    const uploadedFile = files.file?.[0] || files.pdf?.[0];
+    if (!uploadedFile) {
+      return res.status(400).json({ error: "Không tìm thấy file tải lên ở server!" });
     }
+
+    // Đọc file dưới dạng Buffer rồi chuyển sang base64 sạch sẽ
+    const fileBuffer = fs.readFileSync(uploadedFile.filepath);
+    const base64Pdf = fileBuffer.toString('base64');
 
     const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
