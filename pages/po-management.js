@@ -30,27 +30,18 @@ export default function PoManagement() {
     setFormData({ ...formData, items: newItems });
   };
 
-  const handleFileUpload = async (event) => {
+ const handleFileUpload = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
 
     setLoading(true);
     try {
-      const base64Pdf = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          const resStr = reader.result;
-          const base64Data = resStr.includes(',') ? resStr.split(',')[1] : resStr;
-          resolve(base64Data);
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
+      const formDataObj = new FormData();
+      formDataObj.append('file', file); // Gửi file trực tiếp dạng form-data
 
-const res = await fetch('/api/parse-pdf', {
+      const res = await fetch('/api/parse-pdf', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pdfData: base64Pdf }) // Đổi tên để ép Vercel nhận diện code mới hoàn toàn
+        body: formDataObj // Không cần set Content-Type, trình duyệt tự lo
       });
 
       const data = await res.json();
