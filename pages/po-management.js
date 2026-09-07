@@ -802,10 +802,10 @@ export default function CustomerOrdersPage() {
       </div>
 
       {/* ========================================== */}
-      {/* BẢNG DANH SÁCH */}
+      {/* BẢNG DANH SÁCH — HIỂN THỊ CHI TIẾT TỪNG DÒNG SẢN PHẨM */}
       {/* ========================================== */}
-      <div className="bg-white shadow rounded-lg overflow-hidden border">
-        <table className="w-full text-left border-collapse">
+      <div className="bg-white shadow rounded-lg overflow-x-auto border">
+        <table className="w-full text-left border-collapse whitespace-nowrap">
           <thead>
             <tr className="bg-gray-100 border-b text-sm text-gray-700">
               <th className="p-3">Mã đơn hàng</th>
@@ -814,34 +814,82 @@ export default function CustomerOrdersPage() {
               <th className="p-3">Ngày đơn hàng</th>
               <th className="p-3">Hạn giao</th>
               <th className="p-3">Trạng thái</th>
-              <th className="p-3">Số dòng hàng</th>
+              <th className="p-3 border-l">Mã hàng</th>
+              <th className="p-3">Tên hàng</th>
+              <th className="p-3">SL đặt</th>
+              <th className="p-3">Đơn giá</th>
+              <th className="p-3">Thuế</th>
+              <th className="p-3">Thành tiền</th>
+              <th className="p-3 border-l">SL xuống SX</th>
+              <th className="p-3">SL nhập kho</th>
+              <th className="p-3">SL đã giao</th>
             </tr>
           </thead>
           <tbody>
             {loadingList ? (
-              <tr><td colSpan={7} className="text-center p-6 text-gray-500">Đang tải...</td></tr>
+              <tr><td colSpan={15} className="text-center p-6 text-gray-500">Đang tải...</td></tr>
             ) : filteredOrders.length === 0 ? (
-              <tr><td colSpan={7} className="text-center p-6 text-gray-500">Chưa có đơn hàng nào.</td></tr>
+              <tr><td colSpan={15} className="text-center p-6 text-gray-500">Chưa có đơn hàng nào.</td></tr>
             ) : (
-              filteredOrders.map((o) => (
-                <tr
-                  key={o.id}
-                  onClick={() => openOrder(o)}
-                  className="border-b hover:bg-gray-50 text-sm cursor-pointer"
-                >
-                  <td className="p-3 font-semibold">{o.ma_don_hang}</td>
-                  <td className="p-3">{LOAI_DON_HANG_LABEL[o.loai_don_hang]}</td>
-                  <td className="p-3">{o.ma_khach_hang}</td>
-                  <td className="p-3">{o.ngay_don_hang}</td>
-                  <td className="p-3">{o.ngay_yeu_cau_giao || '—'}</td>
-                  <td className="p-3">
-                    <span className={`text-xs px-2 py-1 rounded-full ${TRANG_THAI_COLOR[o.trang_thai]}`}>
-                      {TRANG_THAI_LABEL[o.trang_thai]}
-                    </span>
-                  </td>
-                  <td className="p-3">{(o.customer_order_items || []).length}</td>
-                </tr>
-              ))
+              filteredOrders.map((o) => {
+                const orderItems = (o.customer_order_items || []);
+                const rowCount = orderItems.length > 0 ? orderItems.length : 1;
+
+                if (orderItems.length === 0) {
+                  // Đơn chưa có dòng hàng nào -> vẫn hiện 1 dòng header, các cột item để trống
+                  return (
+                    <tr
+                      key={o.id}
+                      onClick={() => openOrder(o)}
+                      className="border-b hover:bg-gray-50 text-sm cursor-pointer"
+                    >
+                      <td className="p-3 font-semibold">{o.ma_don_hang}</td>
+                      <td className="p-3">{LOAI_DON_HANG_LABEL[o.loai_don_hang]}</td>
+                      <td className="p-3">{o.ma_khach_hang}</td>
+                      <td className="p-3">{o.ngay_don_hang}</td>
+                      <td className="p-3">{o.ngay_yeu_cau_giao || '—'}</td>
+                      <td className="p-3">
+                        <span className={`text-xs px-2 py-1 rounded-full ${TRANG_THAI_COLOR[o.trang_thai]}`}>
+                          {TRANG_THAI_LABEL[o.trang_thai]}
+                        </span>
+                      </td>
+                      <td colSpan={9} className="p-3 border-l text-gray-400 italic">Chưa có dòng hàng nào</td>
+                    </tr>
+                  );
+                }
+
+                return orderItems.map((item, itemIndex) => (
+                  <tr
+                    key={`${o.id}-${item.id ?? itemIndex}`}
+                    onClick={() => openOrder(o)}
+                    className={`border-b hover:bg-gray-50 text-sm cursor-pointer ${itemIndex === 0 ? 'border-t-2 border-t-gray-300' : ''}`}
+                  >
+                    {itemIndex === 0 && (
+                      <>
+                        <td className="p-3 font-semibold align-top" rowSpan={rowCount}>{o.ma_don_hang}</td>
+                        <td className="p-3 align-top" rowSpan={rowCount}>{LOAI_DON_HANG_LABEL[o.loai_don_hang]}</td>
+                        <td className="p-3 align-top" rowSpan={rowCount}>{o.ma_khach_hang}</td>
+                        <td className="p-3 align-top" rowSpan={rowCount}>{o.ngay_don_hang}</td>
+                        <td className="p-3 align-top" rowSpan={rowCount}>{o.ngay_yeu_cau_giao || '—'}</td>
+                        <td className="p-3 align-top" rowSpan={rowCount}>
+                          <span className={`text-xs px-2 py-1 rounded-full ${TRANG_THAI_COLOR[o.trang_thai]}`}>
+                            {TRANG_THAI_LABEL[o.trang_thai]}
+                          </span>
+                        </td>
+                      </>
+                    )}
+                    <td className="p-3 border-l font-mono text-xs">{item.ma_hang}</td>
+                    <td className="p-3">{item.ten_hang}</td>
+                    <td className="p-3">{item.so_luong}</td>
+                    <td className="p-3">{formatVND(item.don_gia)}</td>
+                    <td className="p-3">{item.thue_suat}%</td>
+                    <td className="p-3 font-semibold">{formatVND(tinhThanhTien(item))}</td>
+                    <td className="p-3 border-l">{item.so_luong_da_xuong_sx}</td>
+                    <td className="p-3">{item.so_luong_da_nhap_kho}</td>
+                    <td className="p-3">{item.so_luong_da_giao}</td>
+                  </tr>
+                ));
+              })
             )}
           </tbody>
         </table>
