@@ -313,18 +313,30 @@ export default function ProductionPage() {
       return;
     }
 
-    // 2. Tự động đồng bộ trạng thái và số lượng sang bảng PO khách hàng (ví dụ: bảng 'purchase_orders')
+    // 2. Tự động đồng bộ số lượng và trạng thái sang bảng PO khách hàng (chuẩn hóa in hoa và trim)
     for (const item of recordsToInsert) {
       if (item.ma_hang) {
-        await supabase
-          .from('customer_order_items') // Thay tên bảng PO thực tế của bà nếu khác
+        const chuanHoaMaHang = item.ma_hang.trim().toUpperCase();
+
+        const { data: updatedRows, error: updateError } = await supabase
+          .from('customer_order_items')
           .update({ 
-            trang_thai: 'Đã xuống đơn sản xuất',
-            da_xuong_don: true,
-            so_luong_da_xuong: item.so_luong,
-              ngay_xuong_don: headerData.ngay_xuong_don 
+            so_luong_da_xuong_sx: item.so_luong
           })
-          .eq('ma_hang', item.ma_hang);
+          .eq('ma_hang', chuanHoaMaHang)
+          .select('order_id');
+
+        if (!updateError && updatedRows && updatedRows.length > 0) {
+          for (const row of updatedRows) {
+            await supabase
+              .from('customer_orders')
+              .update({ 
+                trang_thai: 'da_xuong_don_sx',
+                ngay_xuong_don: headerData.ngay_xuong_don 
+              })
+              .eq('id', row.order_id);
+          }
+        }
       }
     }
 
