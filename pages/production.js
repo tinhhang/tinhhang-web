@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../lib/supabaseClient';
 
-// Thứ tự các field trong 1 dòng sản phẩm — cập nhật thêm ma_khach_hang và so_ngay_giao
 const ITEM_FIELDS = ['ma_khach_hang', 'ma_hang', 'ten_san_pham', 'quy_cach', 'so_luong', 'chat_lieu', 'so_ngay_giao', 'co_po', 'chung_tu_thong_quan'];
 
 export default function ProductionPage() {
@@ -12,13 +11,16 @@ export default function ProductionPage() {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [currentPdfUrl, setCurrentPdfUrl] = useState('');
 
-  // State chung cho đơn hàng (đã lược bỏ ma_khach_hang chung)
+  // Trạng thái đang chỉnh sửa (Lưu mã đơn hàng gốc đang được sửa, nếu null là đang tạo mới)
+  const [editingOrderCode, setEditingOrderCode] = useState(null);
+
+  // State chung cho đơn hàng
   const [headerData, setHeaderData] = useState({
     ma_don_hang: '',
     ngay_xuong_don: ''
   });
 
-  // State danh sách các dòng sản phẩm trong đơn (bổ sung các trường mới theo yêu cầu)
+  // State danh sách các dòng sản phẩm trong đơn
   const [items, setItems] = useState([
     { 
       ma_khach_hang: '', 
@@ -29,14 +31,11 @@ export default function ProductionPage() {
       chat_lieu: '',
       so_ngay_giao: '',
       ngay_giao_hang: '',
-      co_po: true,             // Mặc định có PO (hàng chính ngạch)
-      chung_tu_thong_quan: false // Checkbox tích thủ công khi nhận chứng từ
+      co_po: true,
+      chung_tu_thong_quan: false
     }
   ]);
 
-  // ==========================================
-  // AUTOCOMPLETE: danh sách gợi ý lấy từ dữ liệu cũ
-  // ==========================================
   const [suggestions, setSuggestions] = useState({
     ten_san_pham: [],
     chat_lieu: [],
@@ -45,9 +44,6 @@ export default function ProductionPage() {
     ma_hang: []
   });
 
-  // ==========================================
-  // REF cho từng ô input trong bảng
-  // ==========================================
   const inputRefs = useRef({});
 
   const setInputRef = (index, field) => (el) => {
@@ -98,7 +94,6 @@ export default function ProductionPage() {
     fetchSuggestions();
   }, []);
 
-  // Hàm tính toán ngày giao hàng dựa vào ngày xuống đơn và số ngày giao
   const calculateDeliveryDate = (ngayXuongDon, soNgay) => {
     if (!ngayXuongDon || isNaN(soNgay) || soNgay === '') return '';
     const date = new Date(ngayXuongDon);
@@ -127,6 +122,7 @@ export default function ProductionPage() {
 
       setCurrentPdfUrl(publicUrlData.publicUrl);
       setShowUploadModal(false);
+      setEditingOrderCode(null); // Đang tạo mới từ PDF
 
       handleAutoParseAi(publicUrlData.publicUrl);
 
@@ -153,7 +149,6 @@ export default function ProductionPage() {
           ngay_xuong_don: result.data.ngay_xuong_don || ''
         });
         if (result.data.items && result.data.items.length > 0) {
-          // Gắn thêm các giá trị mặc định cho item mới parse nếu chưa có
           const mappedItems = result.data.items.map(item => ({
             ...item,
             ma_khach_hang: result.data.ma_khach_hang || '',
@@ -173,6 +168,35 @@ export default function ProductionPage() {
     } finally {
       setParsingAi(false);
     }
+  };
+
+  // Mở giao diện để Sửa một đơn hàng có sẵn
+  const handleOpenEditOrder = (maDonHang) => {
+    // Lọc tất cả các dòng sản phẩm có cùng ma_don_hang từ danh sách đã tải về
+    const orderItems = orders.filter(o => o.ma_don_hang === maDonHang);
+    if (orderItems.length === 0) return;
+
+    setEditingOrderCode(maDonHang);
+    setHeaderData({
+      ma_don_hang: maDonHang,
+      ngay_xuong_don: orderItems[0].ngay_xuong_don || ''
+    });
+    setCurrentPdfUrl(orderItems[0].file_url || '');
+
+    const loadedItems = orderItems.map(item => ({
+      ma_khach_hang: item.ma_khach_hang || '',
+      ma_hang: item.ma_hang || '',
+      ten_san_pham: item.ten_san_pham || '',
+      quy_cach: item.quy_cach || '',
+      so_luong: item.so_luong || 0,
+      chat_lieu: item.chat_lieu || '',
+      so_ngay_giao: item.so_ngay_giao !== null ? item.so_ngay_giao : '',
+      ngay_giao_hang: item.ngay_giao_hang || '',
+      co_po: item.co_po ?? true,
+      chung_tu_thong_quan: item.chung_tu_thong_quan ?? false
+    }));
+
+    setItems(loadedItems);
   };
 
   const handleAddItemRow = useCallback(() => {
@@ -207,12 +231,10 @@ export default function ProductionPage() {
     const newItems = [...items];
     newItems[index][field] = value;
 
-    // Nếu thay đổi số ngày giao hoặc thay đổi ngày xuống đơn chung, tự tính lại ngày giao hàng
     if (field === 'so_ngay_giao') {
       newItems[index]['ngay_giao_hang'] = calculateDeliveryDate(headerData.ngay_xuong_don, value);
     }
 
-    // Nếu chuyển trạng thái không có PO (hàng bảo hành), tự động xử lý chứng từ thông quan
     if (field === 'co_po' && !value) {
       newItems[index]['chung_tu_thong_quan'] = false; 
     }
@@ -220,7 +242,6 @@ export default function ProductionPage() {
     setItems(newItems);
   };
 
-  // Khi thay đổi ngày xuống đơn chung, cập nhật lại toàn bộ ngày giao hàng của các dòng dựa theo số ngày giao tương ứng
   const handleHeaderDateChange = (e) => {
     const newDate = e.target.value;
     setHeaderData({ ...headerData, ngay_xuong_don: newDate });
@@ -233,7 +254,6 @@ export default function ProductionPage() {
 
   const handleItemKeyDown = (e, index, field) => {
     if (e.key !== 'Enter') return;
-
     e.preventDefault();
 
     const fieldPos = ITEM_FIELDS.indexOf(field);
@@ -253,7 +273,7 @@ export default function ProductionPage() {
     }
   };
 
- const handleSaveOrder = async () => {
+  const handleSaveOrder = async () => {
     if (!headerData.ma_don_hang || !headerData.ngay_xuong_don) {
       alert('Vui lòng điền mã đơn hàng và ngày xuống đơn!');
       return;
@@ -261,21 +281,34 @@ export default function ProductionPage() {
 
     const recordsToInsert = items.map(item => ({
       ma_don_hang: headerData.ma_don_hang,
-      ngay_xuong_don: headerData.ngay_xuong_don,
+      ngay_xuong_don: headerData.ngay_xuong_don ? headerData.ngay_xuong_don : null,
       ma_khach_hang: item.ma_khach_hang,
       ma_hang: item.ma_hang,
       ten_san_pham: item.ten_san_pham,
       quy_cach: item.quy_cach,
       so_luong: item.so_luong,
       chat_lieu: item.chat_lieu,
-      so_ngay_giao: item.so_ngay_giao,
-      ngay_giao_hang: item.ngay_giao_hang,
+      so_ngay_giao: item.so_ngay_giao !== '' ? item.so_ngay_giao : null,
+      ngay_giao_hang: item.ngay_giao_hang ? item.ngay_giao_hang : null,
       co_po: item.co_po,
       chung_tu_thong_quan: item.co_po ? item.chung_tu_thong_quan : false,
       file_url: currentPdfUrl
     }));
 
-    // 1. Lưu đơn sản xuất vào bảng production_orders
+    // Nếu đang trong chế độ sửa: Xóa toàn bộ các dòng cũ của mã đơn này đi trước, sau đó insert lại danh sách mới
+    if (editingOrderCode) {
+      const { error: deleteError } = await supabase
+        .from('production_orders')
+        .delete()
+        .eq('ma_don_hang', editingOrderCode);
+
+      if (deleteError) {
+        alert('Lỗi khi xóa dữ liệu cũ để cập nhật: ' + deleteError.message);
+        return;
+      }
+    }
+
+    // 1. Lưu/Insert danh sách dòng sản phẩm mới vào bảng production_orders
     const { error } = await supabase
       .from('production_orders')
       .insert(recordsToInsert);
@@ -285,53 +318,65 @@ export default function ProductionPage() {
       return;
     }
 
-    // 2. Cập nhật trạng thái "Đã xuống đơn" bên bảng PO dựa vào mã đơn hàng
-    // (Bà thay 'purchase_orders' thành tên bảng PO thực tế trong DB của bà nếu cần)
-    const { error: updatePoError } = await supabase
-      .from('customer_order_items')
+    // 2. Cập nhật trạng thái "Đã xuống đơn" bên bảng PO gốc (Thay 'purchase_orders' bằng tên bảng PO thực tế của bà nếu cần)
+    await supabase
+      .from('purchase_orders')
       .update({ da_xuong_don: true })
       .eq('ma_don_hang', headerData.ma_don_hang);
 
-    if (updatePoError) {
-      console.warn('Không tìm thấy bảng PO tương ứng để cập nhật trạng thái, nhưng đã lưu đơn sản xuất thành công.');
-    }
-
-    alert('Đã lưu đơn sản xuất và cập nhật trạng thái PO thành công!');
+    alert(editingOrderCode ? 'Đã cập nhật đơn sản xuất thành công!' : 'Đã lưu đơn sản xuất mới thành công!');
     setCurrentPdfUrl('');
+    setEditingOrderCode(null);
+    setHeaderData({ ma_don_hang: '', ngay_xuong_don: '' });
     fetchOrders();
     fetchSuggestions();
   };
 
-  // GIAO DIỆN SPLIT-SCREEN 
-  if (currentPdfUrl) {
+  // GIAO DIỆN FORM NHẬP / SỬA ĐƠN
+  if (currentPdfUrl || editingOrderCode) {
     return (
       <div className="flex h-screen w-full bg-gray-50">
+        {/* Phần hiển thị PDF bên trái (nếu có file PDF) */}
         <div className="w-1/2 h-full border-r bg-white">
-          <iframe src={currentPdfUrl} className="w-full h-full" title="PDF Preview" />
+          {currentPdfUrl ? (
+            <iframe src={currentPdfUrl} className="w-full h-full" title="PDF Preview" />
+          ) : (
+            <div className="flex items-center justify-center h-full text-gray-400 p-6 text-center">
+              Đang ở chế độ chỉnh sửa trực tiếp thông tin đơn hàng (Không có file PDF gốc đính kèm).
+            </div>
+          )}
         </div>
 
+        {/* Phần form chỉnh sửa bên phải */}
         <div className="w-1/2 h-full p-6 overflow-y-auto">
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl font-bold">Rà soát & Nhập đơn sản xuất (Nhiều dòng)</h2>
+            <h2 className="text-xl font-bold">
+              {editingOrderCode ? `Sửa đơn sản xuất: ${editingOrderCode}` : 'Rà soát & Nhập đơn sản xuất'}
+            </h2>
             <button
-              onClick={() => setCurrentPdfUrl('')}
+              onClick={() => {
+                setCurrentPdfUrl('');
+                setEditingOrderCode(null);
+              }}
               className="text-red-500 hover:underline text-sm"
             >
               Quay lại danh sách
             </button>
           </div>
 
-          <div className="mb-4">
-            <button
-              onClick={() => handleAutoParseAi(currentPdfUrl)}
-              disabled={parsingAi}
-              className="w-full bg-purple-600 text-white py-2 rounded-lg font-medium hover:bg-purple-700 flex items-center justify-center gap-2 shadow transition text-sm"
-            >
-              {parsingAi ? '⏳ AI đang bóc tách toàn bộ bảng đơn hàng...' : '✨ Yêu cầu AI đọc lại toàn bộ PDF'}
-            </button>
-          </div>
+          {!editingOrderCode && (
+            <div className="mb-4">
+              <button
+                onClick={() => handleAutoParseAi(currentPdfUrl)}
+                disabled={parsingAi}
+                className="w-full bg-purple-600 text-white py-2 rounded-lg font-medium hover:bg-purple-700 flex items-center justify-center gap-2 shadow transition text-sm"
+              >
+                {parsingAi ? '⏳ AI đang bóc tách toàn bộ bảng đơn hàng...' : '✨ Yêu cầu AI đọc lại toàn bộ PDF'}
+              </button>
+            </div>
+          )}
 
-          {/* Thông tin chung (Chỉ còn Mã đơn hàng và Ngày xuống đơn) */}
+          {/* Thông tin chung */}
           <div className="grid grid-cols-2 gap-3 mb-4 bg-white p-4 rounded-lg border shadow-sm">
             <div>
               <label className="block text-xs font-medium mb-1">Mã đơn hàng</label>
@@ -353,7 +398,7 @@ export default function ProductionPage() {
             </div>
           </div>
 
-          {/* Bảng chi tiết danh sách sản phẩm */}
+          {/* Danh sách sản phẩm */}
           <div className="mb-4">
             <div className="flex justify-between items-center mb-2">
               <h3 className="font-bold text-sm">Chi tiết danh sách hàng ({items.length} dòng)</h3>
@@ -384,7 +429,6 @@ export default function ProductionPage() {
                     )}
                   </div>
 
-                  {/* Dòng 1: Mã khách hàng & Mã hàng */}
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className="block text-[10px] text-gray-500 mb-0.5">Mã khách hàng</label>
@@ -414,7 +458,6 @@ export default function ProductionPage() {
                     </div>
                   </div>
 
-                  {/* Dòng 2: Tên sản phẩm & Quy cách */}
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className="block text-[10px] text-gray-500 mb-0.5">Tên sản phẩm</label>
@@ -444,7 +487,6 @@ export default function ProductionPage() {
                     </div>
                   </div>
 
-                  {/* Dòng 3: Số lượng, Chất liệu, Số ngày giao */}
                   <div className="grid grid-cols-3 gap-2">
                     <div>
                       <label className="block text-[10px] text-gray-500 mb-0.5">Số lượng</label>
@@ -485,7 +527,6 @@ export default function ProductionPage() {
                     </div>
                   </div>
 
-                  {/* Hiển thị ngày giao hàng tự tính & Cấu hình Báo quan / Check-list */}
                   <div className="flex items-center justify-between pt-2 border-t text-xs bg-gray-50 p-2 rounded">
                     <div>
                       <span className="text-gray-500">Ngày giao dự kiến: </span>
@@ -495,7 +536,6 @@ export default function ProductionPage() {
                     </div>
 
                     <div className="flex items-center gap-4">
-                      {/* Checkbox Có PO / Báo quan */}
                       <label className="flex items-center gap-1.5 cursor-pointer">
                         <input
                           ref={setInputRef(index, 'co_po')}
@@ -508,7 +548,6 @@ export default function ProductionPage() {
                         <span className="font-medium">Có PO (Báo quan)</span>
                       </label>
 
-                      {/* Trạng thái File gốc / Checklist chứng từ */}
                       {item.co_po ? (
                         <label className="flex items-center gap-1.5 cursor-pointer text-purple-700">
                           <input
@@ -533,7 +572,6 @@ export default function ProductionPage() {
               ))}
             </div>
 
-            {/* datalist dùng chung cho toàn bộ các ô cùng loại trong bảng */}
             <datalist id="suggest-ma-khach-hang">
               {suggestions.ma_khach_hang.map((v) => (
                 <option key={v} value={v} />
@@ -565,7 +603,7 @@ export default function ProductionPage() {
             onClick={handleSaveOrder}
             className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-bold hover:bg-blue-700 text-sm shadow"
           >
-            LƯU TẤT CẢ DÒNG VÀO HỆ THỐNG
+            {editingOrderCode ? 'CẬP NHẬT LẠI ĐƠN SẢN XUẤT' : 'LƯU TẤT CẢ DÒNG VÀO HỆ THỐNG'}
           </button>
         </div>
       </div>
@@ -597,12 +635,13 @@ export default function ProductionPage() {
               <th className="p-3">Số lượng</th>
               <th className="p-3">Ngày giao</th>
               <th className="p-3">File gốc / Trạng thái</th>
+              <th className="p-3 text-center">Thao tác</th>
             </tr>
           </thead>
           <tbody>
             {orders.length === 0 ? (
               <tr>
-                <td colSpan={8} className="text-center p-6 text-gray-500">Chưa có đơn sản xuất nào được tạo.</td>
+                <td colSpan={9} className="text-center p-6 text-gray-500">Chưa có đơn sản xuất nào được tạo.</td>
               </tr>
             ) : (
               orders.map((item) => (
@@ -636,6 +675,14 @@ export default function ProductionPage() {
                         </a>
                       )}
                     </div>
+                  </td>
+                  <td className="p-3 text-center">
+                    <button
+                      onClick={() => handleOpenEditOrder(item.ma_don_hang)}
+                      className="px-3 py-1 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded text-xs font-medium border border-blue-200"
+                    >
+                      Sửa
+                    </button>
                   </td>
                 </tr>
               ))
