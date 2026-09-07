@@ -324,7 +324,6 @@ export default function ProductionPage() {
             so_luong_da_xuong: item.so_luong,
               ngay_xuong_don: headerData.ngay_xuong_don 
           })
-          .eq('ma_don_hang', headerData.ma_don_hang)
           .eq('ma_hang', item.ma_hang);
       }
     }
