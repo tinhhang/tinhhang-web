@@ -11,16 +11,14 @@ export default function ProductionPage() {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [currentPdfUrl, setCurrentPdfUrl] = useState('');
 
-  // Trạng thái đang chỉnh sửa (Lưu mã đơn hàng gốc đang được sửa, nếu null là đang tạo mới)
+  // Lưu mã đơn hàng gốc đang sửa (nếu null là đang tạo mới)
   const [editingOrderCode, setEditingOrderCode] = useState(null);
 
-  // State chung cho đơn hàng
   const [headerData, setHeaderData] = useState({
     ma_don_hang: '',
     ngay_xuong_don: ''
   });
 
-  // State danh sách các dòng sản phẩm trong đơn
   const [items, setItems] = useState([
     { 
       ma_khach_hang: '', 
@@ -122,7 +120,7 @@ export default function ProductionPage() {
 
       setCurrentPdfUrl(publicUrlData.publicUrl);
       setShowUploadModal(false);
-      setEditingOrderCode(null); // Đang tạo mới từ PDF
+      setEditingOrderCode(null);
 
       handleAutoParseAi(publicUrlData.publicUrl);
 
@@ -170,9 +168,7 @@ export default function ProductionPage() {
     }
   };
 
-  // Mở giao diện để Sửa một đơn hàng có sẵn
   const handleOpenEditOrder = (maDonHang) => {
-    // Lọc tất cả các dòng sản phẩm có cùng ma_don_hang từ danh sách đã tải về
     const orderItems = orders.filter(o => o.ma_don_hang === maDonHang);
     if (orderItems.length === 0) return;
 
@@ -295,7 +291,6 @@ export default function ProductionPage() {
       file_url: currentPdfUrl
     }));
 
-    // Nếu đang trong chế độ sửa: Xóa toàn bộ các dòng cũ của mã đơn này đi trước, sau đó insert lại danh sách mới
     if (editingOrderCode) {
       const { error: deleteError } = await supabase
         .from('production_orders')
@@ -308,7 +303,7 @@ export default function ProductionPage() {
       }
     }
 
-    // 1. Lưu/Insert danh sách dòng sản phẩm mới vào bảng production_orders
+    // 1. Lưu danh sách vào bảng production_orders
     const { error } = await supabase
       .from('production_orders')
       .insert(recordsToInsert);
@@ -318,13 +313,23 @@ export default function ProductionPage() {
       return;
     }
 
-    // 2. Cập nhật trạng thái "Đã xuống đơn" bên bảng PO gốc (Thay 'purchase_orders' bằng tên bảng PO thực tế của bà nếu cần)
-    await supabase
-      .from('purchase_orders')
-      .update({ da_xuong_don: true })
-      .eq('ma_don_hang', headerData.ma_don_hang);
+    // 2. Tự động đồng bộ trạng thái và số lượng sang bảng PO khách hàng (ví dụ: bảng 'purchase_orders')
+    for (const item of recordsToInsert) {
+      if (item.ma_hang) {
+        await supabase
+          .from('customer_order_items') // Thay tên bảng PO thực tế của bà nếu khác
+          .update({ 
+            trang_thai: 'Đã xuống đơn sản xuất',
+            da_xuong_don: true,
+            so_luong_da_xuong: item.so_luong
+              ngay_xuong_don: headerData.ngay_xuong_don 
+          })
+          .eq('ma_don_hang', headerData.ma_don_hang)
+          .eq('ma_hang', item.ma_hang);
+      }
+    }
 
-    alert(editingOrderCode ? 'Đã cập nhật đơn sản xuất thành công!' : 'Đã lưu đơn sản xuất mới thành công!');
+    alert(editingOrderCode ? 'Đã cập nhật đơn sản xuất và đồng bộ PO thành công!' : 'Đã lưu đơn sản xuất và đồng bộ PO thành công!');
     setCurrentPdfUrl('');
     setEditingOrderCode(null);
     setHeaderData({ ma_don_hang: '', ngay_xuong_don: '' });
@@ -332,11 +337,9 @@ export default function ProductionPage() {
     fetchSuggestions();
   };
 
-  // GIAO DIỆN FORM NHẬP / SỬA ĐƠN
   if (currentPdfUrl || editingOrderCode) {
     return (
       <div className="flex h-screen w-full bg-gray-50">
-        {/* Phần hiển thị PDF bên trái (nếu có file PDF) */}
         <div className="w-1/2 h-full border-r bg-white">
           {currentPdfUrl ? (
             <iframe src={currentPdfUrl} className="w-full h-full" title="PDF Preview" />
@@ -347,7 +350,6 @@ export default function ProductionPage() {
           )}
         </div>
 
-        {/* Phần form chỉnh sửa bên phải */}
         <div className="w-1/2 h-full p-6 overflow-y-auto">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-xl font-bold">
@@ -376,7 +378,6 @@ export default function ProductionPage() {
             </div>
           )}
 
-          {/* Thông tin chung */}
           <div className="grid grid-cols-2 gap-3 mb-4 bg-white p-4 rounded-lg border shadow-sm">
             <div>
               <label className="block text-xs font-medium mb-1">Mã đơn hàng</label>
@@ -398,7 +399,6 @@ export default function ProductionPage() {
             </div>
           </div>
 
-          {/* Danh sách sản phẩm */}
           <div className="mb-4">
             <div className="flex justify-between items-center mb-2">
               <h3 className="font-bold text-sm">Chi tiết danh sách hàng ({items.length} dòng)</h3>
@@ -610,7 +610,6 @@ export default function ProductionPage() {
     );
   }
 
-  // GIAO DIỆN TRANG CHỦ DANH SÁCH
   return (
     <div className="p-8 max-w-7xl mx-auto">
       <div className="flex justify-between items-center mb-6">
