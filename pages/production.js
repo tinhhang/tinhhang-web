@@ -321,7 +321,7 @@ export default function ProductionPage() {
           .update({ 
             trang_thai: 'Đã xuống đơn sản xuất',
             da_xuong_don: true,
-            so_luong_da_xuong: item.so_luong
+            so_luong_da_xuong: item.so_luong,
               ngay_xuong_don: headerData.ngay_xuong_don 
           })
           .eq('ma_don_hang', headerData.ma_don_hang)
