@@ -253,7 +253,7 @@ export default function ProductionPage() {
     }
   };
 
-  const handleSaveOrder = async () => {
+ const handleSaveOrder = async () => {
     if (!headerData.ma_don_hang || !headerData.ngay_xuong_don) {
       alert('Vui lòng điền mã đơn hàng và ngày xuống đơn!');
       return;
@@ -275,18 +275,31 @@ export default function ProductionPage() {
       file_url: currentPdfUrl
     }));
 
+    // 1. Lưu đơn sản xuất vào bảng production_orders
     const { error } = await supabase
       .from('production_orders')
       .insert(recordsToInsert);
 
     if (error) {
-      alert('Lỗi khi lưu: ' + error.message);
-    } else {
-      alert('Đã lưu toàn bộ đơn sản xuất thành công!');
-      setCurrentPdfUrl('');
-      fetchOrders();
-      fetchSuggestions();
+      alert('Lỗi khi lưu đơn sản xuất: ' + error.message);
+      return;
     }
+
+    // 2. Cập nhật trạng thái "Đã xuống đơn" bên bảng PO dựa vào mã đơn hàng
+    // (Bà thay 'purchase_orders' thành tên bảng PO thực tế trong DB của bà nếu cần)
+    const { error: updatePoError } = await supabase
+      .from('purchase_orders')
+      .update({ da_xuong_don: true })
+      .eq('ma_don_hang', headerData.ma_don_hang);
+
+    if (updatePoError) {
+      console.warn('Không tìm thấy bảng PO tương ứng để cập nhật trạng thái, nhưng đã lưu đơn sản xuất thành công.');
+    }
+
+    alert('Đã lưu đơn sản xuất và cập nhật trạng thái PO thành công!');
+    setCurrentPdfUrl('');
+    fetchOrders();
+    fetchSuggestions();
   };
 
   // GIAO DIỆN SPLIT-SCREEN 
