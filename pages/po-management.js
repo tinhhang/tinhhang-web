@@ -91,16 +91,15 @@ export default function CustomerOrdersPage() {
     ngay_don_hang: '',
     ngay_yeu_cau_giao: '',
     trang_thai: 'moi_nhan',
+    ngay_xuong_don: '', // Thêm trường ngày xuống đơn sản xuất
     file_url: ''
   });
-  const [trangThaiBanDau, setTrangThaiBanDau] = useState('moi_nhan'); // để biết có đổi trạng thái hay không khi lưu
+  const [trangThaiBanDau, setTrangThaiBanDau] = useState('moi_nhan');
 
   const [items, setItems] = useState([emptyItem()]);
 
-  // Gợi ý autocomplete cho mã hàng / tên hàng (lấy từ dữ liệu đã nhập trước đó)
   const [suggestions, setSuggestions] = useState({ ma_hang: [], ten_hang: [] });
 
-  // Ref các ô input trong bảng item, dùng để điều khiển phím Enter nhảy ô
   const inputRefs = useRef({});
   const setInputRef = (index, field) => (el) => {
     inputRefs.current[`${index}-${field}`] = el;
@@ -128,7 +127,6 @@ export default function CustomerOrdersPage() {
   };
 
   const fetchCustomers = async () => {
-    // Bảng "customers" dùng cột customer_code / customer_name (khớp với module Khách hàng hiện có)
     const { data, error } = await supabase
       .from('customers')
       .select('customer_code, customer_name')
@@ -160,7 +158,7 @@ export default function CustomerOrdersPage() {
   }, []);
 
   // ==========================================
-  // CẢNH BÁO Ở TRANG CHỦ (tính động từ dữ liệu orders đã tải)
+  // CẢNH BÁO Ở TRANG CHỦ
   // ==========================================
 
   const canhBaoGiaoCham = useMemo(() => {
@@ -183,10 +181,6 @@ export default function CustomerOrdersPage() {
     });
   }, [orders]);
 
-  // ==========================================
-  // DANH SÁCH ĐÃ LỌC (theo mã khách hàng / loại đơn)
-  // ==========================================
-
   const filteredOrders = useMemo(() => {
     return orders.filter((o) => {
       if (filterMaKhachHang && o.ma_khach_hang !== filterMaKhachHang) return false;
@@ -196,7 +190,7 @@ export default function CustomerOrdersPage() {
   }, [orders, filterMaKhachHang, filterLoaiDonHang]);
 
   // ==========================================
-  // MỞ MÀN HÌNH CHI TIẾT (tạo mới hoặc sửa đơn có sẵn)
+  // MỞ MÀN HÌNH CHI TIẾT
   // ==========================================
 
   const openNewOrder = () => {
@@ -207,6 +201,7 @@ export default function CustomerOrdersPage() {
       ngay_don_hang: new Date().toISOString().slice(0, 10),
       ngay_yeu_cau_giao: '',
       trang_thai: 'moi_nhan',
+      ngay_xuong_don: '',
       file_url: ''
     });
     setTrangThaiBanDau('moi_nhan');
@@ -223,6 +218,7 @@ export default function CustomerOrdersPage() {
       ngay_don_hang: order.ngay_don_hang || '',
       ngay_yeu_cau_giao: order.ngay_yeu_cau_giao || '',
       trang_thai: order.trang_thai || 'moi_nhan',
+      ngay_xuong_don: order.ngay_xuong_don || '',
       file_url: order.file_url || ''
     });
     setTrangThaiBanDau(order.trang_thai || 'moi_nhan');
@@ -238,10 +234,6 @@ export default function CustomerOrdersPage() {
     setView('list');
     setCurrentOrderId(null);
   };
-
-  // ==========================================
-  // UPLOAD FILE PO/HĐ GỐC (PDF hoặc ảnh)
-  // ==========================================
 
   const handleFileUpload = async (e) => {
     const file = e.target.files?.[0];
@@ -278,10 +270,6 @@ export default function CustomerOrdersPage() {
     }
   };
 
-  // ==========================================
-  // THAO TÁC VỚI CÁC DÒNG SẢN PHẨM
-  // ==========================================
-
   const handleAddItemRow = useCallback(() => {
     let newIndex = -1;
     setItems((prev) => {
@@ -303,15 +291,9 @@ export default function CustomerOrdersPage() {
     });
   };
 
-  // Chuẩn hoá mã hàng khi rời khỏi ô (trim + viết hoa), và cảnh báo nhẹ nếu mã
-  // chưa từng xuất hiện trong dữ liệu cũ — không chặn nhập, chỉ nhắc kiểm tra lại.
   const handleMaHangBlur = (index, rawValue) => {
     const chuanHoa = rawValue.trim().toUpperCase();
     handleItemChange(index, 'ma_hang', chuanHoa);
-
-    if (chuanHoa.length > 0 && !suggestions.ma_hang.includes(chuanHoa)) {
-      console.warn(`Mã hàng "${chuanHoa}" chưa từng xuất hiện trong dữ liệu trước đây — kiểm tra lại chính tả nếu cần.`);
-    }
   };
 
   const handleItemKeyDown = (e, index, field) => {
@@ -339,10 +321,6 @@ export default function CustomerOrdersPage() {
     return items.reduce((sum, item) => sum + tinhThanhTien(item), 0);
   }, [items]);
 
-  // ==========================================
-  // LƯU ĐƠN HÀNG (tạo mới hoặc cập nhật)
-  // ==========================================
-
   const handleSaveOrder = async () => {
     if (!headerData.ma_don_hang || !headerData.ma_khach_hang || !headerData.ngay_don_hang) {
       alert('Vui lòng điền đủ Mã đơn hàng, Mã khách hàng và Ngày đơn hàng!');
@@ -360,7 +338,6 @@ export default function CustomerOrdersPage() {
       let orderId = currentOrderId;
 
       if (currentOrderId === 'new') {
-        // Tạo mới đơn hàng
         const { data: inserted, error: insertError } = await supabase
           .from('customer_orders')
           .insert([headerData])
@@ -370,7 +347,6 @@ export default function CustomerOrdersPage() {
         if (insertError) throw insertError;
         orderId = inserted.id;
 
-        // Ghi lịch sử trạng thái ban đầu
         await supabase.from('customer_order_status_history').insert([{
           order_id: orderId,
           trang_thai: headerData.trang_thai,
@@ -378,7 +354,6 @@ export default function CustomerOrdersPage() {
         }]);
 
       } else {
-        // Cập nhật đơn hàng có sẵn
         const { error: updateError } = await supabase
           .from('customer_orders')
           .update(headerData)
@@ -386,7 +361,6 @@ export default function CustomerOrdersPage() {
 
         if (updateError) throw updateError;
 
-        // Nếu trạng thái thay đổi so với lúc mở form -> ghi thêm 1 dòng lịch sử
         if (headerData.trang_thai !== trangThaiBanDau) {
           await supabase.from('customer_order_status_history').insert([{
             order_id: orderId,
@@ -395,7 +369,6 @@ export default function CustomerOrdersPage() {
           }]);
         }
 
-        // Xoá toàn bộ item cũ rồi insert lại (đơn giản, tránh phải so khớp id)
         const { error: deleteError } = await supabase
           .from('customer_order_items')
           .delete()
@@ -404,7 +377,6 @@ export default function CustomerOrdersPage() {
         if (deleteError) throw deleteError;
       }
 
-      // Chuẩn hoá mã hàng (trim + uppercase) trước khi lưu, và bỏ field "id" cũ nếu có
       const itemsToInsert = validItems.map(({ id, order_id, created_at, ...rest }) => ({
         ...rest,
         ma_hang: rest.ma_hang.trim().toUpperCase(),
@@ -418,6 +390,24 @@ export default function CustomerOrdersPage() {
 
       if (itemsError) throw itemsError;
 
+      // ==========================================
+      // ĐỒNG BỘ SANG BẢNG production_orders NẾU CẦN
+      // ==========================================
+      for (const item of itemsToInsert) {
+        if (item.ma_hang) {
+          await supabase
+            .from('production_orders')
+            .update({ 
+              trang_thai: 'Đã xuống đơn sản xuất',
+              da_xuong_don: true,
+              so_luong_da_xuong: item.so_luong,
+              ngay_xuong_don: headerData.ngay_xuong_don
+            })
+            .eq('ma_don_hang', headerData.ma_don_hang)
+            .eq('ma_hang', item.ma_hang);
+        }
+      }
+
       alert('Đã lưu đơn hàng thành công!');
       await fetchOrders();
       await fetchSuggestions();
@@ -430,13 +420,9 @@ export default function CustomerOrdersPage() {
     }
   };
 
-  // ==========================================================
-  // MÀN HÌNH CHI TIẾT: TẠO MỚI / SỬA ĐƠN HÀNG
-  // ==========================================================
   if (view === 'detail') {
     return (
       <div className="flex h-screen w-full bg-gray-50">
-        {/* Bên trái: xem trước file PO/HĐ gốc */}
         <div className="w-1/2 h-full border-r bg-white flex flex-col">
           <div className="p-3 border-b flex items-center justify-between">
             <span className="text-sm font-semibold">File gốc đơn hàng</span>
@@ -466,7 +452,6 @@ export default function CustomerOrdersPage() {
           </div>
         </div>
 
-        {/* Bên phải: form nhập liệu */}
         <div className="w-1/2 h-full p-6 overflow-y-auto">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-xl font-bold">
@@ -477,7 +462,6 @@ export default function CustomerOrdersPage() {
             </button>
           </div>
 
-          {/* Thông tin chung */}
           <div className="grid grid-cols-2 gap-3 mb-3 bg-white p-4 rounded-lg border shadow-sm">
             <div>
               <label className="block text-xs font-medium mb-1">Mã đơn hàng</label>
@@ -542,7 +526,7 @@ export default function CustomerOrdersPage() {
             </div>
 
             <div>
-              <label className="block text-xs font-medium mb-1">Ngày yêu cầu giao (nếu có)</label>
+              <label className="block text-xs font-medium mb-1">Ngày yêu cầu giao</label>
               <input
                 type="date"
                 value={headerData.ngay_yeu_cau_giao || ''}
@@ -550,9 +534,18 @@ export default function CustomerOrdersPage() {
                 className="w-full p-1.5 border rounded text-sm"
               />
             </div>
+
+            <div className="col-span-2">
+              <label className="block text-xs font-medium mb-1">Ngày xuống đơn sản xuất (ngay_xuong_don)</label>
+              <input
+                type="date"
+                value={headerData.ngay_xuong_don || ''}
+                onChange={(e) => setHeaderData({ ...headerData, ngay_xuong_don: e.target.value })}
+                className="w-full p-1.5 border rounded text-sm bg-purple-50 text-purple-800 font-semibold"
+              />
+            </div>
           </div>
 
-          {/* Bảng chi tiết sản phẩm */}
           <div className="mb-4">
             <div className="flex justify-between items-center mb-2">
               <h3 className="font-bold text-sm">Chi tiết hàng hoá ({items.length} dòng)</h3>
@@ -563,10 +556,6 @@ export default function CustomerOrdersPage() {
                 + Thêm dòng
               </button>
             </div>
-
-            <p className="text-xs text-gray-400 mb-2">
-              💡 Nhấn <kbd className="px-1 border rounded bg-gray-100">Enter</kbd> để nhảy sang ô tiếp theo. Ở ô cuối cùng, Enter sẽ tự thêm dòng mới.
-            </p>
 
             <datalist id="suggest-ma-hang-co">
               {suggestions.ma_hang.map((v) => <option key={v} value={v} />)}
@@ -597,7 +586,7 @@ export default function CustomerOrdersPage() {
                       ref={setInputRef(index, 'ma_hang')}
                       type="text"
                       list="suggest-ma-hang-co"
-                      placeholder="Mã hàng (dùng để mapping toàn hệ thống)"
+                      placeholder="Mã hàng"
                       value={item.ma_hang}
                       onChange={(e) => handleItemChange(index, 'ma_hang', e.target.value)}
                       onBlur={(e) => handleMaHangBlur(index, e.target.value)}
@@ -655,7 +644,6 @@ export default function CustomerOrdersPage() {
                     </div>
                   </div>
 
-                  {/* Giao hàng/nhập kho từng phần */}
                   <div className="grid grid-cols-3 gap-2 pt-1 border-t">
                     <div>
                       <label className="block text-[10px] text-gray-400 mb-0.5">SL đã xuống SX</label>
@@ -712,9 +700,6 @@ export default function CustomerOrdersPage() {
     );
   }
 
-  // ==========================================================
-  // MÀN HÌNH DANH SÁCH (trang chủ của module)
-  // ==========================================================
   return (
     <div className="p-8 max-w-7xl mx-auto">
       <div className="flex justify-between items-center mb-6">
@@ -727,9 +712,6 @@ export default function CustomerOrdersPage() {
         </button>
       </div>
 
-      {/* ========================================== */}
-      {/* CẢNH BÁO */}
-      {/* ========================================== */}
       {(canhBaoGiaoCham.length > 0 || canhBaoChuaXuongSX.length > 0) && (
         <div className="mb-6 space-y-2">
           {canhBaoGiaoCham.length > 0 && (
@@ -772,9 +754,6 @@ export default function CustomerOrdersPage() {
         </div>
       )}
 
-      {/* ========================================== */}
-      {/* BỘ LỌC */}
-      {/* ========================================== */}
       <div className="flex gap-3 mb-4">
         <select
           value={filterMaKhachHang}
@@ -801,9 +780,6 @@ export default function CustomerOrdersPage() {
         </select>
       </div>
 
-      {/* ========================================== */}
-      {/* BẢNG DANH SÁCH — HIỂN THỊ CHI TIẾT TỪNG DÒNG SẢN PHẨM */}
-      {/* ========================================== */}
       <div className="bg-white shadow rounded-lg overflow-x-auto border">
         <table className="w-full text-left border-collapse whitespace-nowrap">
           <thead>
@@ -813,6 +789,7 @@ export default function CustomerOrdersPage() {
               <th className="p-3">Mã khách hàng</th>
               <th className="p-3">Ngày đơn hàng</th>
               <th className="p-3">Hạn giao</th>
+              <th className="p-3">Ngày xuống đơn SX</th> {/* Cột mới thêm */}
               <th className="p-3">Trạng thái</th>
               <th className="p-3 border-l">Mã hàng</th>
               <th className="p-3">Tên hàng</th>
@@ -827,16 +804,15 @@ export default function CustomerOrdersPage() {
           </thead>
           <tbody>
             {loadingList ? (
-              <tr><td colSpan={15} className="text-center p-6 text-gray-500">Đang tải...</td></tr>
+              <tr><td colSpan={16} className="text-center p-6 text-gray-500">Đang tải...</td></tr>
             ) : filteredOrders.length === 0 ? (
-              <tr><td colSpan={15} className="text-center p-6 text-gray-500">Chưa có đơn hàng nào.</td></tr>
+              <tr><td colSpan={16} className="text-center p-6 text-gray-500">Chưa có đơn hàng nào.</td></tr>
             ) : (
               filteredOrders.map((o) => {
                 const orderItems = (o.customer_order_items || []);
                 const rowCount = orderItems.length > 0 ? orderItems.length : 1;
 
                 if (orderItems.length === 0) {
-                  // Đơn chưa có dòng hàng nào -> vẫn hiện 1 dòng header, các cột item để trống
                   return (
                     <tr
                       key={o.id}
@@ -848,6 +824,7 @@ export default function CustomerOrdersPage() {
                       <td className="p-3">{o.ma_khach_hang}</td>
                       <td className="p-3">{o.ngay_don_hang}</td>
                       <td className="p-3">{o.ngay_yeu_cau_giao || '—'}</td>
+                      <td className="p-3 text-purple-700 font-medium">{o.ngay_xuong_don || '—'}</td>
                       <td className="p-3">
                         <span className={`text-xs px-2 py-1 rounded-full ${TRANG_THAI_COLOR[o.trang_thai]}`}>
                           {TRANG_THAI_LABEL[o.trang_thai]}
@@ -871,6 +848,7 @@ export default function CustomerOrdersPage() {
                         <td className="p-3 align-top" rowSpan={rowCount}>{o.ma_khach_hang}</td>
                         <td className="p-3 align-top" rowSpan={rowCount}>{o.ngay_don_hang}</td>
                         <td className="p-3 align-top" rowSpan={rowCount}>{o.ngay_yeu_cau_giao || '—'}</td>
+                        <td className="p-3 align-top text-purple-700 font-medium" rowSpan={rowCount}>{o.ngay_xuong_don || '—'}</td>
                         <td className="p-3 align-top" rowSpan={rowCount}>
                           <span className={`text-xs px-2 py-1 rounded-full ${TRANG_THAI_COLOR[o.trang_thai]}`}>
                             {TRANG_THAI_LABEL[o.trang_thai]}
