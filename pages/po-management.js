@@ -261,13 +261,13 @@ export default function CustomerOrdersPage() {
       const fileName = `${Date.now()}.${fileExt}`;
 
       const { error: uploadError } = await supabase.storage
-        .from('po_list')
+        .from('po_files')
         .upload(fileName, file);
 
       if (uploadError) throw uploadError;
 
       const { data: publicUrlData } = supabase.storage
-        .from('po_list')
+        .from('po_files')
         .getPublicUrl(fileName);
 
       setHeaderData((prev) => ({ ...prev, file_url: publicUrlData.publicUrl }));
