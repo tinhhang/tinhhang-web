@@ -128,12 +128,11 @@ export default function CustomerOrdersPage() {
   };
 
   const fetchCustomers = async () => {
-    // Giả định bảng "customers" có cột ma_khach_hang và ten_khach_hang.
-    // Nếu tên cột khác, sửa lại 2 dòng .select() và phần hiển thị bên dưới cho khớp.
+    // Bảng "customers" dùng cột customer_code / customer_name (khớp với module Khách hàng hiện có)
     const { data, error } = await supabase
       .from('customers')
-      .select('ma_khach_hang, ten_khach_hang')
-      .order('ma_khach_hang', { ascending: true });
+      .select('customer_code, customer_name')
+      .order('customer_code', { ascending: true });
     if (!error && data) setCustomers(data);
   };
 
@@ -512,8 +511,8 @@ export default function CustomerOrdersPage() {
               >
                 <option value="">-- Chọn khách hàng --</option>
                 {customers.map((c) => (
-                  <option key={c.ma_khach_hang} value={c.ma_khach_hang}>
-                    {c.ma_khach_hang} — {c.ten_khach_hang}
+                  <option key={c.customer_code} value={c.customer_code}>
+                    {c.customer_code} — {c.customer_name}
                   </option>
                 ))}
               </select>
@@ -784,8 +783,8 @@ export default function CustomerOrdersPage() {
         >
           <option value="">-- Tất cả khách hàng --</option>
           {customers.map((c) => (
-            <option key={c.ma_khach_hang} value={c.ma_khach_hang}>
-              {c.ma_khach_hang} — {c.ten_khach_hang}
+            <option key={c.customer_code} value={c.customer_code}>
+              {c.customer_code} — {c.customer_name}
             </option>
           ))}
         </select>
