@@ -288,7 +288,7 @@ export default function ProductionPage() {
     // 2. Cập nhật trạng thái "Đã xuống đơn" bên bảng PO dựa vào mã đơn hàng
     // (Bà thay 'purchase_orders' thành tên bảng PO thực tế trong DB của bà nếu cần)
     const { error: updatePoError } = await supabase
-      .from('purchase_orders')
+      .from('customer_order_items')
       .update({ da_xuong_don: true })
       .eq('ma_don_hang', headerData.ma_don_hang);
 
