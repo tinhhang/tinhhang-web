@@ -1,47 +1,63 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../lib/supabaseClient';
 
-const ITEM_FIELDS = ['ma_khach_hang', 'ma_hang', 'ten_san_pham', 'quy_cach', 'so_luong', 'chat_lieu', 'so_ngay_giao', 'co_po', 'chung_tu_thong_quan'];
+// Thứ tự các field (dạng text/number) trong 1 dòng sản phẩm — dùng để biết
+// field nào là field cuối khi xử lý phím Enter nhảy ô. 2 checkbox (co_po_goc,
+// da_nhan_chung_tu) không đưa vào đây vì Enter không áp dụng cho checkbox.
+const ITEM_FIELDS = ['ma_khach_hang', 'ma_hang', 'ten_san_pham', 'quy_cach', 'so_luong', 'chat_lieu', 'so_ngay_giao'];
+
+const emptyItem = () => ({
+  ma_khach_hang: '',
+  ma_hang: '',
+  ten_san_pham: '',
+  quy_cach: '',
+  so_luong: 0,
+  chat_lieu: '',
+  so_ngay_giao: 0,
+  co_po_goc: true,
+  da_nhan_chung_tu: false
+});
+
+// Tính ngày giao dự kiến = ngày xuống đơn + số ngày giao
+const tinhNgayGiaoDuKien = (ngayXuongDon, soNgayGiao) => {
+  if (!ngayXuongDon) return '';
+  const d = new Date(ngayXuongDon);
+  if (isNaN(d.getTime())) return '';
+  d.setDate(d.getDate() + (Number(soNgayGiao) || 0));
+  return d.toISOString().slice(0, 10);
+};
 
 export default function ProductionPage() {
   const [orders, setOrders] = useState([]);
+  const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [parsingAi, setParsingAi] = useState(false);
 
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [currentPdfUrl, setCurrentPdfUrl] = useState('');
 
-  // Lưu mã đơn hàng gốc đang sửa (nếu null là đang tạo mới)
-  const [editingOrderCode, setEditingOrderCode] = useState(null);
-
+  // State chung cho đơn hàng (không còn ma_khach_hang ở đây nữa — đã chuyển xuống từng dòng)
   const [headerData, setHeaderData] = useState({
     ma_don_hang: '',
     ngay_xuong_don: ''
   });
 
-  const [items, setItems] = useState([
-    { 
-      ma_khach_hang: '', 
-      ma_hang: '', 
-      ten_san_pham: '', 
-      quy_cach: '', 
-      so_luong: 0, 
-      chat_lieu: '',
-      so_ngay_giao: '',
-      ngay_giao_hang: '',
-      co_po: true,
-      chung_tu_thong_quan: false
-    }
-  ]);
+  // State danh sách các dòng sản phẩm trong đơn
+  const [items, setItems] = useState([emptyItem()]);
 
+  // ==========================================
+  // AUTOCOMPLETE: danh sách gợi ý lấy từ dữ liệu cũ
+  // ==========================================
   const [suggestions, setSuggestions] = useState({
     ten_san_pham: [],
     chat_lieu: [],
-    ma_khach_hang: [],
     quy_cach: [],
     ma_hang: []
   });
 
+  // ==========================================
+  // REF cho từng ô input trong bảng, để điều khiển focus bằng bàn phím
+  // ==========================================
   const inputRefs = useRef({});
 
   const setInputRef = (index, field) => (el) => {
@@ -64,10 +80,20 @@ export default function ProductionPage() {
     if (!error && data) setOrders(data);
   };
 
+  // Danh sách khách hàng để chọn/matching — dùng đúng bảng "customers"
+  // (customer_code / customer_name) giống module PO.
+  const fetchCustomers = async () => {
+    const { data, error } = await supabase
+      .from('customers')
+      .select('customer_code, customer_name')
+      .order('customer_code', { ascending: true });
+    if (!error && data) setCustomers(data);
+  };
+
   const fetchSuggestions = async () => {
     const { data, error } = await supabase
       .from('production_orders')
-      .select('ten_san_pham, chat_lieu, ma_khach_hang, quy_cach, ma_hang');
+      .select('ten_san_pham, chat_lieu, quy_cach, ma_hang');
 
     if (error || !data) return;
 
@@ -81,7 +107,6 @@ export default function ProductionPage() {
     setSuggestions({
       ten_san_pham: uniqueSorted('ten_san_pham'),
       chat_lieu: uniqueSorted('chat_lieu'),
-      ma_khach_hang: uniqueSorted('ma_khach_hang'),
       quy_cach: uniqueSorted('quy_cach'),
       ma_hang: uniqueSorted('ma_hang')
     });
@@ -89,15 +114,9 @@ export default function ProductionPage() {
 
   useEffect(() => {
     fetchOrders();
+    fetchCustomers();
     fetchSuggestions();
   }, []);
-
-  const calculateDeliveryDate = (ngayXuongDon, soNgay) => {
-    if (!ngayXuongDon || isNaN(soNgay) || soNgay === '') return '';
-    const date = new Date(ngayXuongDon);
-    date.setDate(date.getDate() + parseInt(soNgay, 10));
-    return date.toISOString().split('T')[0];
-  };
 
   const handleFileUpload = async (e) => {
     try {
@@ -120,7 +139,6 @@ export default function ProductionPage() {
 
       setCurrentPdfUrl(publicUrlData.publicUrl);
       setShowUploadModal(false);
-      setEditingOrderCode(null);
 
       handleAutoParseAi(publicUrlData.publicUrl);
 
@@ -146,16 +164,24 @@ export default function ProductionPage() {
           ma_don_hang: result.data.ma_don_hang || '',
           ngay_xuong_don: result.data.ngay_xuong_don || ''
         });
+
+        // AI chỉ đọc được mã khách hàng ở cấp cả đơn (không phân theo từng dòng),
+        // nên dùng giá trị đó làm mặc định cho MỌI dòng — người dùng có thể
+        // sửa lại riêng từng dòng nếu 1 đơn sản xuất thực tế gồm nhiều khách khác nhau.
+        const maKhachHangMacDinh = result.data.ma_khach_hang || '';
+
         if (result.data.items && result.data.items.length > 0) {
-          const mappedItems = result.data.items.map(item => ({
-            ...item,
-            ma_khach_hang: result.data.ma_khach_hang || '',
-            so_ngay_giao: item.so_ngay_giao || '',
-            ngay_giao_hang: calculateDeliveryDate(result.data.ngay_xuong_don, item.so_ngay_giao),
-            co_po: true,
-            chung_tu_thong_quan: false
-          }));
-          setItems(mappedItems);
+          setItems(result.data.items.map((it) => ({
+            ma_khach_hang: maKhachHangMacDinh,
+            ma_hang: it.ma_hang || '',
+            ten_san_pham: it.ten_san_pham || '',
+            quy_cach: it.quy_cach || '',
+            so_luong: it.so_luong || 0,
+            chat_lieu: it.chat_lieu || '',
+            so_ngay_giao: 0,
+            co_po_goc: true,
+            da_nhan_chung_tu: false
+          })));
         }
       } else {
         alert('AI không đọc được dữ liệu cấu trúc bảng, bà nhập thủ công giúp tôi nhé!');
@@ -168,84 +194,32 @@ export default function ProductionPage() {
     }
   };
 
-  const handleOpenEditOrder = (maDonHang) => {
-    const orderItems = orders.filter(o => o.ma_don_hang === maDonHang);
-    if (orderItems.length === 0) return;
-
-    setEditingOrderCode(maDonHang);
-    setHeaderData({
-      ma_don_hang: maDonHang,
-      ngay_xuong_don: orderItems[0].ngay_xuong_don || ''
-    });
-    setCurrentPdfUrl(orderItems[0].file_url || '');
-
-    const loadedItems = orderItems.map(item => ({
-      ma_khach_hang: item.ma_khach_hang || '',
-      ma_hang: item.ma_hang || '',
-      ten_san_pham: item.ten_san_pham || '',
-      quy_cach: item.quy_cach || '',
-      so_luong: item.so_luong || 0,
-      chat_lieu: item.chat_lieu || '',
-      so_ngay_giao: item.so_ngay_giao !== null ? item.so_ngay_giao : '',
-      ngay_giao_hang: item.ngay_giao_hang || '',
-      co_po: item.co_po ?? true,
-      chung_tu_thong_quan: item.chung_tu_thong_quan ?? false
-    }));
-
-    setItems(loadedItems);
-  };
-
   const handleAddItemRow = useCallback(() => {
     let newIndex = -1;
     setItems((prevItems) => {
       newIndex = prevItems.length;
-      return [
-        ...prevItems,
-        { 
-          ma_khach_hang: '', 
-          ma_hang: '', 
-          ten_san_pham: '', 
-          quy_cach: '', 
-          so_luong: 0, 
-          chat_lieu: '', 
-          so_ngay_giao: '',
-          ngay_giao_hang: '',
-          co_po: true,
-          chung_tu_thong_quan: false
-        }
-      ];
+      return [...prevItems, emptyItem()];
     });
     return newIndex;
   }, []);
 
   const handleRemoveItemRow = (index) => {
-    const newItems = items.filter((_, i) => i !== index);
-    setItems(newItems);
+    setItems((prev) => prev.filter((_, i) => i !== index));
   };
 
   const handleItemChange = (index, field, value) => {
-    const newItems = [...items];
-    newItems[index][field] = value;
+    setItems((prev) => {
+      const newItems = [...prev];
+      newItems[index] = { ...newItems[index], [field]: value };
 
-    if (field === 'so_ngay_giao') {
-      newItems[index]['ngay_giao_hang'] = calculateDeliveryDate(headerData.ngay_xuong_don, value);
-    }
+      // Nếu bỏ tick "Có PO gốc" -> tự động bỏ luôn tick "Đã nhận chứng từ"
+      // vì hàng không PO thì mặc định là hàng tiểu ngạch, không có chứng từ thông quan.
+      if (field === 'co_po_goc' && value === false) {
+        newItems[index].da_nhan_chung_tu = false;
+      }
 
-    if (field === 'co_po' && !value) {
-      newItems[index]['chung_tu_thong_quan'] = false; 
-    }
-
-    setItems(newItems);
-  };
-
-  const handleHeaderDateChange = (e) => {
-    const newDate = e.target.value;
-    setHeaderData({ ...headerData, ngay_xuong_don: newDate });
-    
-    setItems(prevItems => prevItems.map(item => ({
-      ...item,
-      ngay_giao_hang: calculateDeliveryDate(newDate, item.so_ngay_giao)
-    })));
+      return newItems;
+    });
   };
 
   const handleItemKeyDown = (e, index, field) => {
@@ -275,120 +249,80 @@ export default function ProductionPage() {
       return;
     }
 
-    const recordsToInsert = items.map(item => ({
-      ma_don_hang: headerData.ma_don_hang,
-      ngay_xuong_don: headerData.ngay_xuong_don ? headerData.ngay_xuong_don : null,
-      ma_khach_hang: item.ma_khach_hang,
-      ma_hang: item.ma_hang,
-      ten_san_pham: item.ten_san_pham,
-      quy_cach: item.quy_cach,
-      so_luong: item.so_luong,
-      chat_lieu: item.chat_lieu,
-      so_ngay_giao: item.so_ngay_giao !== '' ? item.so_ngay_giao : null,
-      ngay_giao_hang: item.ngay_giao_hang ? item.ngay_giao_hang : null,
-      co_po: item.co_po,
-      chung_tu_thong_quan: item.co_po ? item.chung_tu_thong_quan : false,
+    const thieuMaKH = items.some((it) => !it.ma_khach_hang);
+    if (thieuMaKH) {
+      alert('Vui lòng chọn Mã khách hàng cho tất cả các dòng sản phẩm!');
+      return;
+    }
+
+    const recordsToInsert = items.map((item) => ({
+      ...headerData,
+      ...item,
+      ngay_giao_du_kien: tinhNgayGiaoDuKien(headerData.ngay_xuong_don, item.so_ngay_giao),
       file_url: currentPdfUrl
     }));
 
-    if (editingOrderCode) {
-      const { error: deleteError } = await supabase
-        .from('production_orders')
-        .delete()
-        .eq('ma_don_hang', editingOrderCode);
-
-      if (deleteError) {
-        alert('Lỗi khi xóa dữ liệu cũ để cập nhật: ' + deleteError.message);
-        return;
-      }
-    }
-
-    // 1. Lưu danh sách vào bảng production_orders
     const { error } = await supabase
       .from('production_orders')
       .insert(recordsToInsert);
 
     if (error) {
-      alert('Lỗi khi lưu đơn sản xuất: ' + error.message);
+      alert('Lỗi khi lưu: ' + error.message);
+    } else {
+      alert('Đã lưu toàn bộ đơn sản xuất thành công!');
+      setCurrentPdfUrl('');
+      fetchOrders();
+      fetchSuggestions();
+    }
+  };
+
+  // Bấm trực tiếp trên bảng danh sách để tick "Đã nhận chứng từ thông quan"
+  // mà không cần mở lại form chi tiết — tiện cho việc cập nhật hàng ngày.
+  const handleToggleChungTu = async (order) => {
+    const newValue = !order.da_nhan_chung_tu;
+    const { error } = await supabase
+      .from('production_orders')
+      .update({ da_nhan_chung_tu: newValue })
+      .eq('id', order.id);
+
+    if (error) {
+      alert('Lỗi khi cập nhật: ' + error.message);
       return;
     }
 
-    // 2. Tự động đồng bộ số lượng và trạng thái sang bảng PO khách hàng (chuẩn hóa in hoa và trim)
-    for (const item of recordsToInsert) {
-      if (item.ma_hang) {
-        const chuanHoaMaHang = item.ma_hang.trim().toUpperCase();
-
-        const { data: updatedRows, error: updateError } = await supabase
-          .from('customer_order_items')
-          .update({ 
-            so_luong_da_xuong_sx: item.so_luong
-          })
-          .eq('ma_hang', chuanHoaMaHang)
-          .select('order_id');
-
-        if (!updateError && updatedRows && updatedRows.length > 0) {
-          for (const row of updatedRows) {
-            await supabase
-              .from('customer_orders')
-              .update({ 
-                trang_thai: 'da_xuong_don_sx',
-                ngay_xuong_don: headerData.ngay_xuong_don 
-              })
-              .eq('id', row.order_id);
-          }
-        }
-      }
-    }
-
-    alert(editingOrderCode ? 'Đã cập nhật đơn sản xuất và đồng bộ PO thành công!' : 'Đã lưu đơn sản xuất và đồng bộ PO thành công!');
-    setCurrentPdfUrl('');
-    setEditingOrderCode(null);
-    setHeaderData({ ma_don_hang: '', ngay_xuong_don: '' });
-    fetchOrders();
-    fetchSuggestions();
+    setOrders((prev) => prev.map((o) => (o.id === order.id ? { ...o, da_nhan_chung_tu: newValue } : o)));
   };
 
-  if (currentPdfUrl || editingOrderCode) {
+  // GIAO DIỆN SPLIT-SCREEN (NHẬP/RÀ SOÁT ĐƠN SẢN XUẤT)
+  if (currentPdfUrl) {
     return (
       <div className="flex h-screen w-full bg-gray-50">
         <div className="w-1/2 h-full border-r bg-white">
-          {currentPdfUrl ? (
-            <iframe src={currentPdfUrl} className="w-full h-full" title="PDF Preview" />
-          ) : (
-            <div className="flex items-center justify-center h-full text-gray-400 p-6 text-center">
-              Đang ở chế độ chỉnh sửa trực tiếp thông tin đơn hàng (Không có file PDF gốc đính kèm).
-            </div>
-          )}
+          <iframe src={currentPdfUrl} className="w-full h-full" title="PDF Preview" />
         </div>
 
         <div className="w-1/2 h-full p-6 overflow-y-auto">
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl font-bold">
-              {editingOrderCode ? `Sửa đơn sản xuất: ${editingOrderCode}` : 'Rà soát & Nhập đơn sản xuất'}
-            </h2>
+            <h2 className="text-xl font-bold">Rà soát & Nhập đơn sản xuất (Nhiều dòng)</h2>
             <button
-              onClick={() => {
-                setCurrentPdfUrl('');
-                setEditingOrderCode(null);
-              }}
+              onClick={() => setCurrentPdfUrl('')}
               className="text-red-500 hover:underline text-sm"
             >
               Quay lại danh sách
             </button>
           </div>
 
-          {!editingOrderCode && (
-            <div className="mb-4">
-              <button
-                onClick={() => handleAutoParseAi(currentPdfUrl)}
-                disabled={parsingAi}
-                className="w-full bg-purple-600 text-white py-2 rounded-lg font-medium hover:bg-purple-700 flex items-center justify-center gap-2 shadow transition text-sm"
-              >
-                {parsingAi ? '⏳ AI đang bóc tách toàn bộ bảng đơn hàng...' : '✨ Yêu cầu AI đọc lại toàn bộ PDF'}
-              </button>
-            </div>
-          )}
+          <div className="mb-4">
+            <button
+              onClick={() => handleAutoParseAi(currentPdfUrl)}
+              disabled={parsingAi}
+              className="w-full bg-purple-600 text-white py-2 rounded-lg font-medium hover:bg-purple-700 flex items-center justify-center gap-2 shadow transition text-sm"
+            >
+              {parsingAi ? '⏳ AI đang bóc tách toàn bộ bảng đơn hàng...' : '✨ Yêu cầu AI đọc lại toàn bộ PDF'}
+            </button>
+          </div>
 
+          {/* Thông tin chung — chỉ còn Mã đơn hàng và Ngày xuống đơn, không còn Mã khách hàng ở đây */}
           <div className="grid grid-cols-2 gap-3 mb-4 bg-white p-4 rounded-lg border shadow-sm">
             <div>
               <label className="block text-xs font-medium mb-1">Mã đơn hàng</label>
@@ -404,12 +338,13 @@ export default function ProductionPage() {
               <input
                 type="date"
                 value={headerData.ngay_xuong_don}
-                onChange={handleHeaderDateChange}
+                onChange={(e) => setHeaderData({ ...headerData, ngay_xuong_don: e.target.value })}
                 className="w-full p-1.5 border rounded text-sm"
               />
             </div>
           </div>
 
+          {/* Bảng chi tiết danh sách sản phẩm */}
           <div className="mb-4">
             <div className="flex justify-between items-center mb-2">
               <h3 className="font-bold text-sm">Chi tiết danh sách hàng ({items.length} dòng)</h3>
@@ -423,39 +358,60 @@ export default function ProductionPage() {
 
             <p className="text-xs text-gray-400 mb-2">
               💡 Mẹo: nhấn <kbd className="px-1 border rounded bg-gray-100">Enter</kbd> để nhảy nhanh sang ô tiếp theo.
+              Ở ô cuối cùng, nhấn Enter sẽ tự thêm dòng mới.
             </p>
 
-            <div className="space-y-3">
-              {items.map((item, index) => (
-                <div key={index} className="p-3 bg-white border rounded-lg shadow-sm relative space-y-2">
-                  <div className="flex justify-between items-center">
-                    <span className="text-xs font-bold text-gray-500">Dòng #{index + 1}</span>
-                    {items.length > 1 && (
-                      <button
-                        onClick={() => handleRemoveItemRow(index)}
-                        className="text-red-500 text-xs hover:underline"
-                      >
-                        Xóa dòng
-                      </button>
-                    )}
-                  </div>
+            <datalist id="suggest-ma-hang">
+              {suggestions.ma_hang.map((v) => <option key={v} value={v} />)}
+            </datalist>
+            <datalist id="suggest-ten-san-pham">
+              {suggestions.ten_san_pham.map((v) => <option key={v} value={v} />)}
+            </datalist>
+            <datalist id="suggest-quy-cach">
+              {suggestions.quy_cach.map((v) => <option key={v} value={v} />)}
+            </datalist>
+            <datalist id="suggest-chat-lieu">
+              {suggestions.chat_lieu.map((v) => <option key={v} value={v} />)}
+            </datalist>
 
-                  <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-3">
+              {items.map((item, index) => {
+                const ngayGiaoDuKien = tinhNgayGiaoDuKien(headerData.ngay_xuong_don, item.so_ngay_giao);
+
+                return (
+                  <div key={index} className="p-3 bg-white border rounded-lg shadow-sm relative space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs font-bold text-gray-500">Dòng #{index + 1}</span>
+                      {items.length > 1 && (
+                        <button
+                          onClick={() => handleRemoveItemRow(index)}
+                          className="text-red-500 text-xs hover:underline"
+                        >
+                          Xóa dòng
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Mã khách hàng — matching với bảng customers, giống module PO */}
                     <div>
-                      <label className="block text-[10px] text-gray-500 mb-0.5">Mã khách hàng</label>
-                      <input
+                      <label className="block text-[10px] text-gray-400 mb-0.5">Mã khách hàng</label>
+                      <select
                         ref={setInputRef(index, 'ma_khach_hang')}
-                        type="text"
-                        list="suggest-ma-khach-hang"
-                        placeholder="Mã khách hàng"
                         value={item.ma_khach_hang}
                         onChange={(e) => handleItemChange(index, 'ma_khach_hang', e.target.value)}
                         onKeyDown={(e) => handleItemKeyDown(e, index, 'ma_khach_hang')}
                         className="w-full p-1.5 border rounded text-xs"
-                      />
+                      >
+                        <option value="">-- Chọn khách hàng --</option>
+                        {customers.map((c) => (
+                          <option key={c.customer_code} value={c.customer_code}>
+                            {c.customer_code} — {c.customer_name}
+                          </option>
+                        ))}
+                      </select>
                     </div>
-                    <div>
-                      <label className="block text-[10px] text-gray-500 mb-0.5">Mã hàng / Model</label>
+
+                    <div className="grid grid-cols-2 gap-2">
                       <input
                         ref={setInputRef(index, 'ma_hang')}
                         type="text"
@@ -464,14 +420,8 @@ export default function ProductionPage() {
                         value={item.ma_hang}
                         onChange={(e) => handleItemChange(index, 'ma_hang', e.target.value)}
                         onKeyDown={(e) => handleItemKeyDown(e, index, 'ma_hang')}
-                        className="w-full p-1.5 border rounded text-xs"
+                        className="p-1.5 border rounded text-xs"
                       />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="block text-[10px] text-gray-500 mb-0.5">Tên sản phẩm</label>
                       <input
                         ref={setInputRef(index, 'ten_san_pham')}
                         type="text"
@@ -480,11 +430,11 @@ export default function ProductionPage() {
                         value={item.ten_san_pham}
                         onChange={(e) => handleItemChange(index, 'ten_san_pham', e.target.value)}
                         onKeyDown={(e) => handleItemKeyDown(e, index, 'ten_san_pham')}
-                        className="w-full p-1.5 border rounded text-xs"
+                        className="p-1.5 border rounded text-xs"
                       />
                     </div>
-                    <div>
-                      <label className="block text-[10px] text-gray-500 mb-0.5">Quy cách</label>
+
+                    <div className="grid grid-cols-3 gap-2">
                       <input
                         ref={setInputRef(index, 'quy_cach')}
                         type="text"
@@ -493,14 +443,8 @@ export default function ProductionPage() {
                         value={item.quy_cach}
                         onChange={(e) => handleItemChange(index, 'quy_cach', e.target.value)}
                         onKeyDown={(e) => handleItemKeyDown(e, index, 'quy_cach')}
-                        className="w-full p-1.5 border rounded text-xs"
+                        className="p-1.5 border rounded text-xs"
                       />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-2">
-                    <div>
-                      <label className="block text-[10px] text-gray-500 mb-0.5">Số lượng</label>
                       <input
                         ref={setInputRef(index, 'so_luong')}
                         type="number"
@@ -508,11 +452,8 @@ export default function ProductionPage() {
                         value={item.so_luong}
                         onChange={(e) => handleItemChange(index, 'so_luong', parseInt(e.target.value) || 0)}
                         onKeyDown={(e) => handleItemKeyDown(e, index, 'so_luong')}
-                        className="w-full p-1.5 border rounded text-xs"
+                        className="p-1.5 border rounded text-xs"
                       />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] text-gray-500 mb-0.5">Chất liệu</label>
                       <input
                         ref={setInputRef(index, 'chat_lieu')}
                         type="text"
@@ -521,106 +462,77 @@ export default function ProductionPage() {
                         value={item.chat_lieu}
                         onChange={(e) => handleItemChange(index, 'chat_lieu', e.target.value)}
                         onKeyDown={(e) => handleItemKeyDown(e, index, 'chat_lieu')}
-                        className="w-full p-1.5 border rounded text-xs"
+                        className="p-1.5 border rounded text-xs"
                       />
                     </div>
-                    <div>
-                      <label className="block text-[10px] text-gray-500 mb-0.5">Số ngày giao</label>
-                      <input
-                        ref={setInputRef(index, 'so_ngay_giao')}
-                        type="number"
-                        placeholder="Ví dụ: 20"
-                        value={item.so_ngay_giao}
-                        onChange={(e) => handleItemChange(index, 'so_ngay_giao', e.target.value)}
-                        onKeyDown={(e) => handleItemKeyDown(e, index, 'so_ngay_giao')}
-                        className="w-full p-1.5 border rounded text-xs"
-                      />
-                    </div>
-                  </div>
 
-                  <div className="flex items-center justify-between pt-2 border-t text-xs bg-gray-50 p-2 rounded">
-                    <div>
-                      <span className="text-gray-500">Ngày giao dự kiến: </span>
-                      <span className="font-semibold text-blue-600">
-                        {item.ngay_giao_hang || 'Chưa xác định'}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-4">
-                      <label className="flex items-center gap-1.5 cursor-pointer">
+                    {/* Thời gian giao hàng: nhập số ngày, tự tính ra ngày cụ thể */}
+                    <div className="grid grid-cols-2 gap-2 pt-1 border-t">
+                      <div>
+                        <label className="block text-[10px] text-gray-400 mb-0.5">Giao sau (số ngày)</label>
                         <input
-                          ref={setInputRef(index, 'co_po')}
-                          type="checkbox"
-                          checked={item.co_po}
-                          onChange={(e) => handleItemChange(index, 'co_po', e.target.checked)}
-                          onKeyDown={(e) => handleItemKeyDown(e, index, 'co_po')}
-                          className="rounded text-blue-600 focus:ring-blue-500"
+                          ref={setInputRef(index, 'so_ngay_giao')}
+                          type="number"
+                          placeholder="Ví dụ: 20"
+                          value={item.so_ngay_giao}
+                          onChange={(e) => handleItemChange(index, 'so_ngay_giao', parseInt(e.target.value) || 0)}
+                          onKeyDown={(e) => handleItemKeyDown(e, index, 'so_ngay_giao')}
+                          className="w-full p-1.5 border rounded text-xs"
                         />
-                        <span className="font-medium">Có PO (Báo quan)</span>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] text-gray-400 mb-0.5">Ngày giao dự kiến (tự tính)</label>
+                        <input
+                          type="text"
+                          disabled
+                          value={ngayGiaoDuKien || '— cần nhập Ngày xuống đơn trước —'}
+                          className="w-full p-1.5 border rounded text-xs bg-gray-50 text-gray-600"
+                        />
+                      </div>
+                    </div>
+
+                    {/* PO gốc & chứng từ thông quan */}
+                    <div className="flex items-center gap-6 pt-1 border-t">
+                      <label className="flex items-center gap-1.5 text-xs">
+                        <input
+                          type="checkbox"
+                          checked={item.co_po_goc}
+                          onChange={(e) => handleItemChange(index, 'co_po_goc', e.target.checked)}
+                        />
+                        Có PO gốc
                       </label>
 
-                      {item.co_po ? (
-                        <label className="flex items-center gap-1.5 cursor-pointer text-purple-700">
+                      {item.co_po_goc ? (
+                        <label className="flex items-center gap-1.5 text-xs">
                           <input
-                            ref={setInputRef(index, 'chung_tu_thong_quan')}
                             type="checkbox"
-                            checked={item.chung_tu_thong_quan}
-                            onChange={(e) => handleItemChange(index, 'chung_tu_thong_quan', e.target.checked)}
-                            onKeyDown={(e) => handleItemKeyDown(e, index, 'chung_tu_thong_quan')}
-                            className="rounded text-purple-600 focus:ring-purple-500"
+                            checked={item.da_nhan_chung_tu}
+                            onChange={(e) => handleItemChange(index, 'da_nhan_chung_tu', e.target.checked)}
                           />
-                          <span>Đã nhận chứng từ chính ngạch</span>
+                          Đã nhận chứng từ thông quan chính ngạch
                         </label>
                       ) : (
-                        <span className="px-2 py-0.5 bg-orange-100 text-orange-800 font-semibold rounded text-[11px]">
-                          Hàng tiểu ngạch
-                        </span>
+                        <span className="text-xs italic text-orange-600">Hàng tiểu ngạch (không có PO)</span>
                       )}
                     </div>
                   </div>
-
-                </div>
-              ))}
+                );
+              })}
             </div>
-
-            <datalist id="suggest-ma-khach-hang">
-              {suggestions.ma_khach_hang.map((v) => (
-                <option key={v} value={v} />
-              ))}
-            </datalist>
-            <datalist id="suggest-ma-hang">
-              {suggestions.ma_hang.map((v) => (
-                <option key={v} value={v} />
-              ))}
-            </datalist>
-            <datalist id="suggest-ten-san-pham">
-              {suggestions.ten_san_pham.map((v) => (
-                <option key={v} value={v} />
-              ))}
-            </datalist>
-            <datalist id="suggest-quy-cach">
-              {suggestions.quy_cach.map((v) => (
-                <option key={v} value={v} />
-              ))}
-            </datalist>
-            <datalist id="suggest-chat-lieu">
-              {suggestions.chat_lieu.map((v) => (
-                <option key={v} value={v} />
-              ))}
-            </datalist>
           </div>
 
           <button
             onClick={handleSaveOrder}
             className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-bold hover:bg-blue-700 text-sm shadow"
           >
-            {editingOrderCode ? 'CẬP NHẬT LẠI ĐƠN SẢN XUẤT' : 'LƯU TẤT CẢ DÒNG VÀO HỆ THỐNG'}
+            LƯU TẤT CẢ DÒNG VÀO HỆ THỐNG
           </button>
         </div>
       </div>
     );
   }
 
+  // GIAO DIỆN TRANG CHỦ DANH SÁCH
   return (
     <div className="p-8 max-w-7xl mx-auto">
       <div className="flex justify-between items-center mb-6">
@@ -633,8 +545,8 @@ export default function ProductionPage() {
         </button>
       </div>
 
-      <div className="bg-white shadow rounded-lg overflow-hidden border">
-        <table className="w-full text-left border-collapse">
+      <div className="bg-white shadow rounded-lg overflow-x-auto border">
+        <table className="w-full text-left border-collapse whitespace-nowrap">
           <thead>
             <tr className="bg-gray-100 border-b text-sm text-gray-700">
               <th className="p-3">Mã đơn hàng</th>
@@ -643,56 +555,56 @@ export default function ProductionPage() {
               <th className="p-3">Mã hàng</th>
               <th className="p-3">Tên sản phẩm</th>
               <th className="p-3">Số lượng</th>
-              <th className="p-3">Ngày giao</th>
-              <th className="p-3">File gốc / Trạng thái</th>
-              <th className="p-3 text-center">Thao tác</th>
+              <th className="p-3">Ngày giao dự kiến</th>
+              <th className="p-3">PO gốc</th>
+              <th className="p-3">Chứng từ thông quan</th>
+              <th className="p-3">File gốc PDF</th>
             </tr>
           </thead>
           <tbody>
             {orders.length === 0 ? (
               <tr>
-                <td colSpan={9} className="text-center p-6 text-gray-500">Chưa có đơn sản xuất nào được tạo.</td>
+                <td colSpan={10} className="text-center p-6 text-gray-500">Chưa có đơn sản xuất nào được tạo.</td>
               </tr>
             ) : (
               orders.map((item) => (
                 <tr key={item.id} className="border-b hover:bg-gray-50 text-sm">
                   <td className="p-3 font-semibold">{item.ma_don_hang}</td>
                   <td className="p-3">{item.ngay_xuong_don}</td>
-                  <td className="p-3 font-medium text-purple-700">{item.ma_khach_hang || '—'}</td>
+                  <td className="p-3">{item.ma_khach_hang}</td>
                   <td className="p-3">{item.ma_hang}</td>
                   <td className="p-3">{item.ten_san_pham}</td>
                   <td className="p-3">{item.so_luong}</td>
-                  <td className="p-3 text-blue-600">{item.ngay_giao_hang || '—'}</td>
+                  <td className="p-3">{item.ngay_giao_du_kien || '—'}</td>
                   <td className="p-3">
-                    <div className="flex flex-col gap-1">
-                      {!item.co_po ? (
-                        <span className="inline-block px-2 py-0.5 bg-orange-100 text-orange-800 rounded text-xs font-semibold w-max">
-                          Hàng tiểu ngạch
-                        </span>
-                      ) : item.chung_tu_thong_quan ? (
-                        <span className="inline-block px-2 py-0.5 bg-green-100 text-green-800 rounded text-xs font-semibold w-max">
-                          Đã nhận chứng từ chính ngạch
-                        </span>
-                      ) : (
-                        <span className="inline-block px-2 py-0.5 bg-gray-100 text-gray-700 rounded text-xs w-max">
-                          Chưa có chứng từ (Chính ngạch)
-                        </span>
-                      )}
-
-                      {item.file_url && (
-                        <a href={item.file_url} target="_blank" rel="noreferrer" className="text-blue-600 underline text-xs">
-                          Xem PDF gốc
-                        </a>
-                      )}
-                    </div>
+                    {item.co_po_goc ? (
+                      <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">Có PO</span>
+                    ) : (
+                      <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full">Tiểu ngạch</span>
+                    )}
                   </td>
-                  <td className="p-3 text-center">
-                    <button
-                      onClick={() => handleOpenEditOrder(item.ma_don_hang)}
-                      className="px-3 py-1 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded text-xs font-medium border border-blue-200"
-                    >
-                      Sửa
-                    </button>
+                  <td className="p-3">
+                    {item.co_po_goc ? (
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={!!item.da_nhan_chung_tu}
+                          onChange={() => handleToggleChungTu(item)}
+                        />
+                        <span className={item.da_nhan_chung_tu ? 'text-green-600' : 'text-gray-400'}>
+                          {item.da_nhan_chung_tu ? 'Đã nhận' : 'Chưa nhận'}
+                        </span>
+                      </label>
+                    ) : (
+                      <span className="text-xs italic text-orange-600">Hàng tiểu ngạch</span>
+                    )}
+                  </td>
+                  <td className="p-3">
+                    {item.file_url && (
+                      <a href={item.file_url} target="_blank" rel="noreferrer" className="text-blue-600 underline">
+                        Xem PDF
+                      </a>
+                    )}
                   </td>
                 </tr>
               ))
