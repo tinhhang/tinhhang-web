@@ -351,13 +351,21 @@ export default function ProductionPage() {
     }
 
     for (const orderId of matchedOrderIds) {
-      await supabase
+      const { error: updateOrderError } = await supabase
         .from('customer_orders')
         .update({
           trang_thai: 'da_xuong_don_sx',
           ngay_xuong_don_sx: ngayXuongDonSX
         })
         .eq('id', orderId);
+
+      if (updateOrderError) {
+        // Không còn bỏ qua âm thầm nữa — báo lỗi rõ ràng để biết ngay khi update PO thất bại
+        // (ví dụ do RLS chặn), thay vì vẫn ghi lịch sử "đã cập nhật" dù thực ra chưa cập nhật.
+        console.error(`Lỗi khi cập nhật trạng thái PO id=${orderId}:`, updateOrderError);
+        alert(`⚠️ Lỗi khi tự động cập nhật PO (id=${orderId}): ${updateOrderError.message}`);
+        continue; // Bỏ qua, KHÔNG ghi lịch sử cho PO này vì update thực tế đã thất bại
+      }
 
       await supabase.from('customer_order_status_history').insert([{
         order_id: orderId,
