@@ -32,9 +32,19 @@ export default function ProductionPage() {
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [parsingAi, setParsingAi] = useState(false);
+  const [loadingEdit, setLoadingEdit] = useState(false);
 
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [currentPdfUrl, setCurrentPdfUrl] = useState('');
+
+  // Điều khiển hiện/ẩn màn hình nhập liệu — TÁCH RIÊNG khỏi currentPdfUrl, vì khi
+  // SỬA một đơn không có file PDF gốc, currentPdfUrl vẫn rỗng nhưng vẫn cần mở form.
+  const [formVisible, setFormVisible] = useState(false);
+
+  // Nếu đang SỬA đơn có sẵn, lưu lại mã đơn hàng GỐC (trước khi sửa) để biết
+  // cần xoá những dòng nào trong Supabase trước khi ghi lại dòng mới.
+  // null = đang tạo đơn mới, không phải sửa.
+  const [originalMaDonHang, setOriginalMaDonHang] = useState(null);
 
   // State chung cho đơn hàng (không còn ma_khach_hang ở đây nữa — đã chuyển xuống từng dòng)
   const [headerData, setHeaderData] = useState({
@@ -139,6 +149,10 @@ export default function ProductionPage() {
 
       setCurrentPdfUrl(publicUrlData.publicUrl);
       setShowUploadModal(false);
+      setOriginalMaDonHang(null); // đây là luồng TẠO ĐƠN MỚI, không phải sửa
+      setHeaderData({ ma_don_hang: '', ngay_xuong_don: '' });
+      setItems([emptyItem()]);
+      setFormVisible(true);
 
       handleAutoParseAi(publicUrlData.publicUrl);
 
@@ -255,9 +269,26 @@ export default function ProductionPage() {
       return;
     }
 
+    // Nếu đang SỬA đơn có sẵn -> xoá toàn bộ dòng cũ (theo mã đơn hàng GỐC)
+    // trước khi ghi lại dòng mới, để hỗ trợ cả việc thêm/bớt dòng khi sửa.
+    if (originalMaDonHang) {
+      const { error: deleteError } = await supabase
+        .from('production_orders')
+        .delete()
+        .eq('ma_don_hang', originalMaDonHang);
+
+      if (deleteError) {
+        alert('Lỗi khi xoá dữ liệu cũ trước khi cập nhật: ' + deleteError.message);
+        return;
+      }
+    }
+
+    // Chuẩn hoá mã hàng (trim + viết hoa) để mapping với PO khách được chính xác,
+    // tránh lệch do khác biệt hoa/thường hoặc khoảng trắng thừa.
     const recordsToInsert = items.map((item) => ({
       ...headerData,
       ...item,
+      ma_hang: (item.ma_hang || '').trim().toUpperCase(),
       ngay_giao_du_kien: tinhNgayGiaoDuKien(headerData.ngay_xuong_don, item.so_ngay_giao),
       file_url: currentPdfUrl
     }));
@@ -268,12 +299,121 @@ export default function ProductionPage() {
 
     if (error) {
       alert('Lỗi khi lưu: ' + error.message);
-    } else {
-      alert('Đã lưu toàn bộ đơn sản xuất thành công!');
-      setCurrentPdfUrl('');
-      fetchOrders();
-      fetchSuggestions();
+      return;
     }
+
+    // ==========================================
+    // MAPPING TỰ ĐỘNG SANG PO KHÁCH HÀNG
+    // Chạy lại cả khi tạo mới lẫn khi sửa — với mỗi dòng vừa lưu, tìm các PO
+    // đang ở trạng thái "Mới nhận" có cùng Mã khách hàng + Mã hàng -> tự
+    // chuyển sang "Đã xuống đơn sản xuất" và ghi lại ngày xuống đơn sản xuất.
+    // ==========================================
+    const soPoDaMapping = await mapToCustomerOrders(recordsToInsert, headerData.ngay_xuong_don);
+
+    const thongBao = originalMaDonHang ? 'Đã cập nhật đơn sản xuất thành công!' : 'Đã lưu đơn sản xuất thành công!';
+    alert(
+      soPoDaMapping > 0
+        ? `${thongBao}\n\nĐã tự động chuyển ${soPoDaMapping} PO khách hàng sang trạng thái "Đã xuống đơn sản xuất".`
+        : `${thongBao} (Không có PO nào khớp để tự động cập nhật)`
+    );
+
+    setFormVisible(false);
+    setCurrentPdfUrl('');
+    setOriginalMaDonHang(null);
+    fetchOrders();
+    fetchSuggestions();
+  };
+
+  // Tìm các PO (customer_orders) đang "Mới nhận" có dòng hàng khớp
+  // (cùng ma_khach_hang + ma_hang) với các dòng sản xuất vừa lưu,
+  // rồi tự động chuyển trạng thái + ghi ngày xuống đơn sản xuất.
+  // Trả về số lượng PO đã được cập nhật.
+  const mapToCustomerOrders = async (savedItems, ngayXuongDonSX) => {
+    const matchedOrderIds = new Set();
+
+    for (const item of savedItems) {
+      if (!item.ma_khach_hang || !item.ma_hang) continue;
+
+      const { data, error } = await supabase
+        .from('customer_order_items')
+        .select('order_id, customer_orders!inner(id, trang_thai, ma_khach_hang)')
+        .eq('ma_hang', item.ma_hang)
+        .eq('customer_orders.ma_khach_hang', item.ma_khach_hang)
+        .eq('customer_orders.trang_thai', 'moi_nhan');
+
+      if (error) {
+        console.error('Lỗi khi tìm PO khớp:', error);
+        continue;
+      }
+      if (!data) continue;
+
+      data.forEach((row) => matchedOrderIds.add(row.order_id));
+    }
+
+    for (const orderId of matchedOrderIds) {
+      await supabase
+        .from('customer_orders')
+        .update({
+          trang_thai: 'da_xuong_don_sx',
+          ngay_xuong_don_sx: ngayXuongDonSX
+        })
+        .eq('id', orderId);
+
+      await supabase.from('customer_order_status_history').insert([{
+        order_id: orderId,
+        trang_thai: 'da_xuong_don_sx',
+        ghi_chu: 'Tự động cập nhật do khớp Mã khách hàng + Mã hàng với đơn sản xuất vừa nhập'
+      }]);
+    }
+
+    return matchedOrderIds.size;
+  };
+
+  // ==========================================
+  // MỞ LẠI 1 ĐƠN SẢN XUẤT ĐÃ LƯU ĐỂ SỬA
+  // (gồm nhiều dòng cùng ma_don_hang, gộp lại thành 1 đơn để hiển thị)
+  // ==========================================
+  const openEditProductionOrder = async (maDonHang) => {
+    setLoadingEdit(true);
+    const { data, error } = await supabase
+      .from('production_orders')
+      .select('*')
+      .eq('ma_don_hang', maDonHang)
+      .order('id', { ascending: true });
+
+    setLoadingEdit(false);
+
+    if (error || !data || data.length === 0) {
+      alert('Lỗi khi tải đơn sản xuất để sửa: ' + (error?.message || 'Không tìm thấy dữ liệu.'));
+      return;
+    }
+
+    setHeaderData({
+      ma_don_hang: data[0].ma_don_hang,
+      ngay_xuong_don: data[0].ngay_xuong_don
+    });
+
+    setItems(data.map((row) => ({
+      ma_khach_hang: row.ma_khach_hang || '',
+      ma_hang: row.ma_hang || '',
+      ten_san_pham: row.ten_san_pham || '',
+      quy_cach: row.quy_cach || '',
+      so_luong: row.so_luong || 0,
+      chat_lieu: row.chat_lieu || '',
+      so_ngay_giao: row.so_ngay_giao || 0,
+      co_po_goc: row.co_po_goc,
+      da_nhan_chung_tu: row.da_nhan_chung_tu
+    })));
+
+    setCurrentPdfUrl(data[0].file_url || '');
+    setOriginalMaDonHang(maDonHang);
+    setFormVisible(true);
+  };
+
+  const handleQuayLaiDanhSach = () => {
+    setFormVisible(false);
+    setCurrentPdfUrl('');
+    setOriginalMaDonHang(null);
   };
 
   // Bấm trực tiếp trên bảng danh sách để tick "Đã nhận chứng từ thông quan"
@@ -293,34 +433,57 @@ export default function ProductionPage() {
     setOrders((prev) => prev.map((o) => (o.id === order.id ? { ...o, da_nhan_chung_tu: newValue } : o)));
   };
 
+  // Gộp danh sách phẳng (mỗi dòng = 1 sản phẩm) thành nhóm theo ma_don_hang,
+  // để hiển thị nút "Sửa" chung cho cả đơn và gộp cột thông tin đơn bằng rowSpan.
+  const groupedOrders = (() => {
+    const map = new Map();
+    orders.forEach((o) => {
+      if (!map.has(o.ma_don_hang)) map.set(o.ma_don_hang, []);
+      map.get(o.ma_don_hang).push(o);
+    });
+    return Array.from(map.values()).sort(
+      (a, b) => Math.max(...b.map((r) => r.id)) - Math.max(...a.map((r) => r.id))
+    );
+  })();
+
   // GIAO DIỆN SPLIT-SCREEN (NHẬP/RÀ SOÁT ĐƠN SẢN XUẤT)
-  if (currentPdfUrl) {
+  if (formVisible) {
     return (
       <div className="flex h-screen w-full bg-gray-50">
         <div className="w-1/2 h-full border-r bg-white">
-          <iframe src={currentPdfUrl} className="w-full h-full" title="PDF Preview" />
+          {currentPdfUrl ? (
+            <iframe src={currentPdfUrl} className="w-full h-full" title="PDF Preview" />
+          ) : (
+            <div className="flex items-center justify-center h-full text-sm text-gray-400">
+              Đơn này không có file PDF gốc đính kèm
+            </div>
+          )}
         </div>
 
         <div className="w-1/2 h-full p-6 overflow-y-auto">
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl font-bold">Rà soát & Nhập đơn sản xuất (Nhiều dòng)</h2>
+            <h2 className="text-xl font-bold">
+              {originalMaDonHang ? `Sửa đơn sản xuất #${headerData.ma_don_hang}` : 'Rà soát & Nhập đơn sản xuất (Nhiều dòng)'}
+            </h2>
             <button
-              onClick={() => setCurrentPdfUrl('')}
+              onClick={handleQuayLaiDanhSach}
               className="text-red-500 hover:underline text-sm"
             >
               Quay lại danh sách
             </button>
           </div>
 
-          <div className="mb-4">
-            <button
-              onClick={() => handleAutoParseAi(currentPdfUrl)}
-              disabled={parsingAi}
-              className="w-full bg-purple-600 text-white py-2 rounded-lg font-medium hover:bg-purple-700 flex items-center justify-center gap-2 shadow transition text-sm"
-            >
-              {parsingAi ? '⏳ AI đang bóc tách toàn bộ bảng đơn hàng...' : '✨ Yêu cầu AI đọc lại toàn bộ PDF'}
-            </button>
-          </div>
+          {currentPdfUrl && (
+            <div className="mb-4">
+              <button
+                onClick={() => handleAutoParseAi(currentPdfUrl)}
+                disabled={parsingAi}
+                className="w-full bg-purple-600 text-white py-2 rounded-lg font-medium hover:bg-purple-700 flex items-center justify-center gap-2 shadow transition text-sm"
+              >
+                {parsingAi ? '⏳ AI đang bóc tách toàn bộ bảng đơn hàng...' : '✨ Yêu cầu AI đọc lại toàn bộ PDF'}
+              </button>
+            </div>
+          )}
 
           {/* Thông tin chung — chỉ còn Mã đơn hàng và Ngày xuống đơn, không còn Mã khách hàng ở đây */}
           <div className="grid grid-cols-2 gap-3 mb-4 bg-white p-4 rounded-lg border shadow-sm">
@@ -525,7 +688,7 @@ export default function ProductionPage() {
             onClick={handleSaveOrder}
             className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-bold hover:bg-blue-700 text-sm shadow"
           >
-            LƯU TẤT CẢ DÒNG VÀO HỆ THỐNG
+            {originalMaDonHang ? 'CẬP NHẬT ĐƠN SẢN XUẤT' : 'LƯU TẤT CẢ DÒNG VÀO HỆ THỐNG'}
           </button>
         </div>
       </div>
@@ -545,6 +708,10 @@ export default function ProductionPage() {
         </button>
       </div>
 
+      {loadingEdit && (
+        <p className="text-sm text-blue-600 mb-3 animate-pulse">⏳ Đang tải đơn để sửa...</p>
+      )}
+
       <div className="bg-white shadow rounded-lg overflow-x-auto border">
         <table className="w-full text-left border-collapse whitespace-nowrap">
           <thead>
@@ -559,55 +726,69 @@ export default function ProductionPage() {
               <th className="p-3">PO gốc</th>
               <th className="p-3">Chứng từ thông quan</th>
               <th className="p-3">File gốc PDF</th>
+              <th className="p-3 border-l">Thao tác</th>
             </tr>
           </thead>
           <tbody>
             {orders.length === 0 ? (
               <tr>
-                <td colSpan={10} className="text-center p-6 text-gray-500">Chưa có đơn sản xuất nào được tạo.</td>
+                <td colSpan={11} className="text-center p-6 text-gray-500">Chưa có đơn sản xuất nào được tạo.</td>
               </tr>
             ) : (
-              orders.map((item) => (
-                <tr key={item.id} className="border-b hover:bg-gray-50 text-sm">
-                  <td className="p-3 font-semibold">{item.ma_don_hang}</td>
-                  <td className="p-3">{item.ngay_xuong_don}</td>
-                  <td className="p-3">{item.ma_khach_hang}</td>
-                  <td className="p-3">{item.ma_hang}</td>
-                  <td className="p-3">{item.ten_san_pham}</td>
-                  <td className="p-3">{item.so_luong}</td>
-                  <td className="p-3">{item.ngay_giao_du_kien || '—'}</td>
-                  <td className="p-3">
-                    {item.co_po_goc ? (
-                      <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">Có PO</span>
-                    ) : (
-                      <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full">Tiểu ngạch</span>
+              groupedOrders.map((group) => {
+                const rowCount = group.length;
+                return group.map((item, itemIndex) => (
+                  <tr key={item.id} className={`border-b hover:bg-gray-50 text-sm ${itemIndex === 0 ? 'border-t-2 border-t-gray-300' : ''}`}>
+                    <td className="p-3 font-semibold">{item.ma_don_hang}</td>
+                    <td className="p-3">{item.ngay_xuong_don}</td>
+                    <td className="p-3">{item.ma_khach_hang}</td>
+                    <td className="p-3">{item.ma_hang}</td>
+                    <td className="p-3">{item.ten_san_pham}</td>
+                    <td className="p-3">{item.so_luong}</td>
+                    <td className="p-3">{item.ngay_giao_du_kien || '—'}</td>
+                    <td className="p-3">
+                      {item.co_po_goc ? (
+                        <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">Có PO</span>
+                      ) : (
+                        <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full">Tiểu ngạch</span>
+                      )}
+                    </td>
+                    <td className="p-3">
+                      {item.co_po_goc ? (
+                        <label className="flex items-center gap-1.5 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={!!item.da_nhan_chung_tu}
+                            onChange={() => handleToggleChungTu(item)}
+                          />
+                          <span className={item.da_nhan_chung_tu ? 'text-green-600' : 'text-gray-400'}>
+                            {item.da_nhan_chung_tu ? 'Đã nhận' : 'Chưa nhận'}
+                          </span>
+                        </label>
+                      ) : (
+                        <span className="text-xs italic text-orange-600">Hàng tiểu ngạch</span>
+                      )}
+                    </td>
+                    <td className="p-3">
+                      {item.file_url && (
+                        <a href={item.file_url} target="_blank" rel="noreferrer" className="text-blue-600 underline">
+                          Xem PDF
+                        </a>
+                      )}
+                    </td>
+                    {itemIndex === 0 && (
+                      <td className="p-3 border-l align-top" rowSpan={rowCount}>
+                        <button
+                          onClick={() => openEditProductionOrder(item.ma_don_hang)}
+                          className="text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded hover:bg-blue-100"
+                        >
+                          ✏️ Sửa
+                        </button>
+                      </td>
                     )}
-                  </td>
-                  <td className="p-3">
-                    {item.co_po_goc ? (
-                      <label className="flex items-center gap-1.5 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={!!item.da_nhan_chung_tu}
-                          onChange={() => handleToggleChungTu(item)}
-                        />
-                        <span className={item.da_nhan_chung_tu ? 'text-green-600' : 'text-gray-400'}>
-                          {item.da_nhan_chung_tu ? 'Đã nhận' : 'Chưa nhận'}
-                        </span>
-                      </label>
-                    ) : (
-                      <span className="text-xs italic text-orange-600">Hàng tiểu ngạch</span>
-                    )}
-                  </td>
-                  <td className="p-3">
-                    {item.file_url && (
-                      <a href={item.file_url} target="_blank" rel="noreferrer" className="text-blue-600 underline">
-                        Xem PDF
-                      </a>
-                    )}
-                  </td>
-                </tr>
-              ))
+                  </tr>
+                ));
+              })
             )}
           </tbody>
         </table>
