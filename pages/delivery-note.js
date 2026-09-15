@@ -290,7 +290,11 @@ export default function DeliveryNotesPage() {
     if (validItems.length > 0) {
       const { error: insertError } = await supabase
         .from('delivery_note_items')
-        .insert(validItems.map((it) => ({ ...it, delivery_note_id: currentNoteId })));
+        .insert(validItems.map((it) => ({
+          ...it,
+          ngay_po: it.ngay_po ? it.ngay_po : null, // chuỗi rỗng "" không hợp lệ cho cột date, phải là null
+          delivery_note_id: currentNoteId,
+        })));
 
       if (insertError) {
         alert('Lỗi khi lưu chi tiết hàng hoá: ' + insertError.message);
