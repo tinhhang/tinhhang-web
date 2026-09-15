@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
-import { supabase } from '../lib/supabaseClient'; // BÀ KIỂM TRA ĐƯỜNG DẪN FILE SUPABASE CHO ĐÚNG NHÉ
+import { supabase } from '../lib/supabaseClient';
 
 export default function Inventory() {
   const [items, setItems] = useState([]);
@@ -13,29 +13,23 @@ export default function Inventory() {
     quantity: 1,
     customsDeclarationNo: '',
     exportUnit: '',
-    deliveryStatus: 'Chưa giao',
     invoiceStatus: 'Chưa xuất hóa đơn',
     invoiceDate: ''
   });
 
-  // 1. Chuẩn hóa ngày về định dạng ISO (YYYY-MM-DD) để lưu vào Supabase không bị lỗi out of range
   const formatDateForDB = (val) => {
     if (!val) return null;
-    
     let d;
     if (val instanceof Date) {
       d = val;
     } else {
       const str = String(val).trim();
       if (!str) return null;
-      
       const parts = str.split(/[\/\-]/);
       if (parts.length === 3) {
         const p1 = parseInt(parts[0], 10);
         const p2 = parseInt(parts[1], 10);
         const p3 = parseInt(parts[2], 10);
-        
-        // Nếu định dạng d/m/yyyy hoặc dd/mm/yyyy
         if (p3 > 1000) {
           const day = String(p1).padStart(2, '0');
           const month = String(p2).padStart(2, '0');
@@ -44,17 +38,13 @@ export default function Inventory() {
       }
       d = new Date(str);
     }
-
     if (isNaN(d.getTime())) return null;
-
     const year = d.getFullYear();
     const month = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
-
     return `${year}-${month}-${day}`;
   };
 
-  // 2. Format ngày hiển thị ra giao diện bảng (DD/MM/YYYY)
   const formatDateForDisplay = (val) => {
     if (!val) return '';
     const d = new Date(val);
@@ -65,7 +55,15 @@ export default function Inventory() {
     return `${day}/${month}/${year}`;
   };
 
-  // Tải dữ liệu từ Supabase khi mở trang
+  // Trạng thái giao hàng giờ SUY RA từ số lượng, không lưu boolean riêng nữa
+  const tinhTrangThaiGiao = (quantity, soLuongDaGiao) => {
+    const sl = Number(quantity) || 0;
+    const daGiao = Number(soLuongDaGiao) || 0;
+    if (daGiao <= 0) return 'Chưa giao';
+    if (daGiao >= sl) return 'Đã giao hết';
+    return `Giao 1 phần (${daGiao}/${sl})`;
+  };
+
   const fetchInventory = async () => {
     setLoading(true);
     const { data, error } = await supabase
@@ -84,8 +82,7 @@ export default function Inventory() {
         quantity: item.quantity,
         customsDeclarationNo: item.import_declaration_no,
         exportUnit: item.export_unit,
-        delivery_status: item.delivery_status,
-        deliveryStatus: item.delivery_status ? 'Đã giao hàng' : 'Chưa giao',
+        so_luong_da_giao: item.so_luong_da_giao || 0,
         invoice_status: item.invoice_status,
         invoiceStatus: item.invoice_status || 'Chưa xuất hóa đơn',
         invoice_date: item.invoice_date,
@@ -100,7 +97,6 @@ export default function Inventory() {
     fetchInventory();
   }, []);
 
-  // 3. Import Excel và LƯU VÀO SUPABASE
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -113,7 +109,6 @@ export default function Inventory() {
         const wb = XLSX.read(bstr, { type: 'binary', cellDates: true });
         const wsname = wb.SheetNames[0];
         const ws = wb.Sheets[wsname];
-
         const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
         const parsedItems = [];
 
@@ -126,9 +121,6 @@ export default function Inventory() {
           const colD = row[3];
           const colE = row[4];
           const colF = row[5];
-          const colG = row[6];
-          const colJ = row[9];
-          const colP = row[15];
 
           if (
             !colD ||
@@ -138,17 +130,6 @@ export default function Inventory() {
             continue;
           }
 
-          const pStatus = String(colP).trim().toLowerCase() === 'true' || colP === true;
-          const hasDateG = colG && String(colG).trim() !== '';
-          let isDelivered = false;
-
-          if (pStatus || (!pStatus && hasDateG)) {
-            isDelivered = true;
-          }
-
-          let invoiceStatus = pStatus ? 'Đã xuất hóa đơn' : 'Chưa xuất hóa đơn';
-          let invoiceDate = pStatus ? formatDateForDB(colJ) : null;
-
           parsedItems.push({
             import_date: formatDateForDB(colC),
             product_code: '',
@@ -156,9 +137,9 @@ export default function Inventory() {
             quantity: isNaN(Number(colE)) ? 0 : Number(colE),
             import_declaration_no: String(colB || '').trim(),
             export_unit: String(colF || '').trim(),
-            delivery_status: isDelivered,
-            invoice_status: invoiceStatus,
-            invoice_date: invoiceDate
+            so_luong_da_giao: 0,
+            invoice_status: 'Chưa xuất hóa đơn',
+            invoice_date: null
           });
         }
 
@@ -171,7 +152,6 @@ export default function Inventory() {
         const { error } = await supabase.from('inventory_import').insert(parsedItems);
 
         if (error) {
-          console.error('Lỗi khi lưu vào DB:', error);
           alert('Lỗi lưu vào CSDL: ' + error.message);
         } else {
           alert(`Đã Import thành công ${parsedItems.length} dòng dữ liệu!`);
@@ -187,7 +167,8 @@ export default function Inventory() {
     reader.readAsBinaryString(file);
   };
 
-  // 4. Cập nhật Mã hàng trực tiếp lên Supabase
+  // Chuẩn hoá mã hàng (trim + viết hoa) — đồng bộ với module PO/Sản xuất, để
+  // việc mapping tồn kho ở module Giao hàng chính xác, không bị lệch hoa/thường.
   const handleProductCodeChange = async (index, value) => {
     const updatedItems = [...items];
     updatedItems[index].productCode = value;
@@ -195,11 +176,20 @@ export default function Inventory() {
 
     const item = updatedItems[index];
     if (item.id) {
-      await supabase.from('inventory_import').update({ product_code: value }).eq('id', item.id);
+      await supabase
+        .from('inventory_import')
+        .update({ product_code: value.trim().toUpperCase() })
+        .eq('id', item.id);
     }
   };
 
-  // 5. Đổi trạng thái Hóa đơn & lưu DB
+  const handleProductCodeBlur = async (index) => {
+    const chuanHoa = (items[index].productCode || '').trim().toUpperCase();
+    const updatedItems = [...items];
+    updatedItems[index].productCode = chuanHoa;
+    setItems(updatedItems);
+  };
+
   const toggleInvoiceStatus = async (index) => {
     const updatedItems = [...items];
     const item = updatedItems[index];
@@ -225,48 +215,21 @@ export default function Inventory() {
     if (item.id) {
       await supabase
         .from('inventory_import')
-        .update({
-          invoice_status: newInvoiceStatus,
-          invoice_date: newInvoiceDateForDB
-        })
+        .update({ invoice_status: newInvoiceStatus, invoice_date: newInvoiceDateForDB })
         .eq('id', item.id);
     }
   };
 
-  // 6. Đổi trạng thái Giao hàng & lưu DB
-  const toggleDeliveryStatus = async (index) => {
-    const updatedItems = [...items];
-    const item = updatedItems[index];
-
-    const currentStatus = item.delivery_status !== undefined ? item.delivery_status : item.deliveryStatus === 'Đã giao';
-    const newStatus = !currentStatus;
-
-    item.delivery_status = newStatus;
-    item.deliveryStatus = newStatus ? 'Đã giao' : 'Chưa giao';
-
-    setItems(updatedItems);
-
-    if (item.id) {
-      await supabase
-        .from('inventory_import')
-        .update({
-          delivery_status: newStatus
-        })
-        .eq('id', item.id);
-    }
-  };
-
-  // 7. Nhập dữ liệu thủ công & lưu DB
   const handleAddManual = async (e) => {
     e.preventDefault();
     const newItem = {
       import_date: formatDateForDB(formData.importDate),
-      product_code: formData.productCode,
+      product_code: formData.productCode.trim().toUpperCase(),
       product_name: formData.productName,
       quantity: formData.quantity,
       import_declaration_no: formData.customsDeclarationNo,
       export_unit: formData.exportUnit,
-      delivery_status: false,
+      so_luong_da_giao: 0,
       invoice_status: formData.invoiceStatus,
       invoice_date: formData.invoiceStatus === 'Đã xuất hóa đơn' ? formatDateForDB(formData.invoiceDate) : null
     };
@@ -284,7 +247,6 @@ export default function Inventory() {
         quantity: 1,
         customsDeclarationNo: '',
         exportUnit: '',
-        deliveryStatus: 'Chưa giao',
         invoiceStatus: 'Chưa xuất hóa đơn',
         invoiceDate: ''
       });
@@ -310,9 +272,10 @@ export default function Inventory() {
             <th>Ngày nhập</th>
             <th>Mã sản phẩm</th>
             <th>Tên sản phẩm</th>
-            <th>Số lượng</th>
+            <th>Số lượng nhập</th>
             <th>Đơn vị xuất</th>
-            <th>Trạng thái giao</th>
+            <th>Đã giao</th>
+            <th>Còn lại</th>
             <th>Trạng thái hóa đơn</th>
             <th>Ngày hóa đơn</th>
           </tr>
@@ -328,16 +291,19 @@ export default function Inventory() {
                   type="text"
                   value={item.productCode || ''}
                   onChange={(e) => handleProductCodeChange(index, e.target.value)}
+                  onBlur={() => handleProductCodeBlur(index)}
                   placeholder="Nhập mã..."
                 />
               </td>
               <td>{item.productName}</td>
               <td>{item.quantity}</td>
               <td>{item.exportUnit}</td>
-              <td>
-                <button onClick={() => toggleDeliveryStatus(index)}>
-                  {item.deliveryStatus}
-                </button>
+              <td>{item.so_luong_da_giao}</td>
+              <td style={{ fontWeight: 'bold' }}>
+                {(item.quantity || 0) - (item.so_luong_da_giao || 0)}
+                <div style={{ fontSize: '11px', color: '#666', fontWeight: 'normal' }}>
+                  {tinhTrangThaiGiao(item.quantity, item.so_luong_da_giao)}
+                </div>
               </td>
               <td>
                 <button onClick={() => toggleInvoiceStatus(index)}>
